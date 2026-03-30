@@ -1,0 +1,96 @@
+# SUBIT-T
+
+**Archetypal routing layer for multi-agent AI systems.**
+
+64 cognitive states × 4 semantic operators = 256 deterministic transitions.
+
+```python
+from subit_t import encode, Router, build_prompt
+
+# Encode text → state + operator
+result = encode("Review this code — I think there's a memory leak")
+print(result.current_state)  # SCAN
+print(result.operator)       # Op.ACT
+print(result.target_state)   # REFINER
+
+# Route to agent
+router = Router()
+
+@router.on(state="REFINER")
+def refiner(state, op, ctx):
+    return {"action": "apply precision edits"}
+
+record = router.route_text("Review this code...")
+
+# Build system prompt
+prompt = build_prompt(result.target_state, result.operator)
+```
+
+## Installation
+
+```bash
+pip install subit-t
+```
+
+## Architecture
+
+```
+Text input
+    ↓
+Encoder (two-phase)
+    ↓ current_state + operator
+Transition: apply(state, op) → next_state
+    ↓
+Prompt injection: (state, op) → system prompt
+    ↓
+LLM agent response
+```
+
+### State space
+
+`State = WHO × WHERE × WHEN` — 64 states, 6-bit encoding.
+
+| Dimension | Values | Semantic |
+|-----------|--------|----------|
+| WHO | ME / WE / YOU / THEY | Agent perspective |
+| WHERE | EAST / SOUTH / WEST / NORTH | Cognitive domain |
+| WHEN | SPRING / SUMMER / AUTUMN / WINTER | Process phase |
+
+### Operators
+
+Each operator mutates exactly **one axis**:
+
+| Op | Symbol | Axis | Target | Semantic |
+|----|--------|------|--------|----------|
+| INIT | ⊕ | WHEN | SPRING | Restart phase |
+| EXPAND | ⊗ | WHERE | SOUTH | Shift to execution |
+| MERGE | ⊞ | WHO | WE | Expand to collective |
+| ACT | ⊖ | WHEN | AUTUMN | Close phase |
+
+### Two-phase encoder
+
+Unlike single-phase encoders, SUBIT-T encodes separately:
+1. **Current state** — where is the agent now?
+2. **Target state** — where should it go?
+3. **Operator** — which axis differs? → select operator for that axis.
+
+This eliminates the idempotent problem where current state and operator
+derive from the same signal.
+
+## Observability
+
+```python
+router.op_distribution()   # {"INIT": 3, "ACT": 5, ...}
+router.stuck_detection()   # {"over_act": False, "no_init": True, ...}
+router.idempotent_rate()   # 0.12
+```
+
+Stuck detection flags:
+- `over_act` — >60% ACT ops: system stuck closing, never initiates
+- `no_init` — 0 INIT ops: generation never restarts
+- `no_merge` — 0 MERGE ops: never goes collective
+- `over_expand` — >60% EXPAND: always pushing to execution, no analysis
+
+## License
+
+MIT
