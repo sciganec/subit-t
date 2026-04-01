@@ -91,19 +91,20 @@ class SubitSpeakerSelector:
 
     def select(self, last_message: str) -> SubitAgent:
         encoded = encode(last_message)
-        transition = self.group_state.apply(encoded.operator)
-        self.group_state = transition.result
+        record = self._history_router.route(self.group_state, encoded.operator, context={"text": last_message})
+        transition = record["transition"]
+        self.group_state = State(transition["result"]["bits"])
 
         for agent in self.agents:
-            if agent.archetype == transition.result.name:
+            if agent.archetype == self.group_state.name:
                 return agent
 
         for agent in self.agents:
-            if agent.state.who == transition.result.who and agent.state.what == transition.result.what:
+            if agent.state.who == self.group_state.who and agent.state.what == self.group_state.what:
                 return agent
 
         for agent in self.agents:
-            if agent.state.who == transition.result.who:
+            if agent.state.who == self.group_state.who:
                 return agent
 
         type_priority = {"core": 0, "transient": 1, "rare": 2, "unknown": 3}

@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from subit_t.core import State, Op
+from subit_t.encoder import encode
 from subit_t.injector import build_prompt, build_minimal_prompt
 from subit_t.router import Router
 
@@ -51,17 +52,23 @@ class SubitRouter:
 
     def __init__(self, start_state: Optional[State] = None):
         self._start = start_state
+        self._current = start_state
         self._subit = Router()
 
     def route(self, text: str) -> dict:
-        record = self._subit.route_text(text, context={"text": text})
+        encoded = encode(text)
+        current = self._current or encoded.current_state
+        record = self._subit.route(current, encoded.operator, context={"text": text})
         transition = record["transition"]
-        encoding = record["encoding"]
-
         next_state = State(transition["result"]["bits"])
+        self._current = next_state
+
+        encoding = encoded.to_dict()
+        encoding["routed_from_state"] = current.to_dict()
         op = Op(transition["operator"])
 
         return {
+            "source_state": current.name,
             "state": next_state.name,
             "operator": op.value,
             "who": next_state.who,
@@ -85,6 +92,7 @@ class SubitRouter:
 
     def reset(self) -> None:
         self._subit.reset()
+        self._current = self._start
 
 
 class SubitRouterChain:

@@ -43,5 +43,5 @@ addopts   = "-v"
 line-length = 100
 target-version = "py310"
 
-[tool.setuptools]
-packages = ["subit_t"]
+[tool.setuptools.packages.find]
+include = ["subit_t*"]

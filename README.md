@@ -46,6 +46,12 @@ record = router.route_text("Let's start reviewing the authentication PR")
 pip install subit-t
 ```
 
+For local development:
+
+```bash
+pip install -e .
+```
+
 ## Architecture
 
 ```text
@@ -55,6 +61,41 @@ Text input
   -> apply(state, op) -> next_state
   -> prompt injection
   -> LLM agent response
+```
+
+## CLI
+
+Run the local CLI directly from the repo:
+
+```bash
+python -m subit_t.cli profile "Review this code"
+python -m subit_t.cli ollama "Explain token refresh"
+python -m subit_t.cli chat --fetch-pages 2 --show-sources
+```
+
+After editable install, the same commands are available through `subit`.
+
+## Runtime Layout
+
+- `subit_t/runtime/ollama.py`: local Ollama transport
+- `subit_t/runtime/web.py`: web-search and page-fetch helpers
+- `subit_t/runtime/chat.py`: interactive chat session loop
+
+This keeps the algebra and router core separate from assistant-style workflows.
+
+## Evaluation
+
+The repository now includes a lightweight evaluation scaffold:
+
+- `eval/gold.jsonl`: seed gold examples
+- `eval/challenge.jsonl`: harder ambiguous prompts
+- `eval/runner.py`: encoder evaluation runner
+
+Run it with:
+
+```bash
+python eval/runner.py
+python eval/runner.py --dataset eval/challenge.jsonl
 ```
 
 ## State Space
