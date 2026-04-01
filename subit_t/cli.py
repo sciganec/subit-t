@@ -10,8 +10,13 @@ Commands:
 """
 
 import argparse
+import html
 import json
+import re
 import sys
+from urllib.parse import parse_qs, urlparse, unquote
+
+import requests
 
 
 def cmd_profile(args):
@@ -171,6 +176,216 @@ def cmd_chain(args):
     print()
 
 
+def _strip_tags(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text)
+
+
+def _extract_ddg_url(raw_url: str) -> str:
+    if raw_url.startswith("//"):
+        return "https:" + raw_url
+    if raw_url.startswith("/l/?"):
+        query = parse_qs(urlparse(raw_url).query)
+        uddg = query.get("uddg", [raw_url])[0]
+        return unquote(uddg)
+    return raw_url
+
+
+def _duckduckgo_search(query: str, limit: int = 5, timeout: int = 20) -> list[dict]:
+    response = requests.post(
+        "https://html.duckduckgo.com/html/",
+        data={"q": query},
+        headers={"User-Agent": "subit-t/0.3.0"},
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    html_text = response.text
+
+    pattern = re.compile(
+        r'<a[^>]*class="result__a"[^>]*href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>.*?'
+        r'(?:(?:<a[^>]*class="result__snippet"[^>]*>|<div[^>]*class="result__snippet"[^>]*>)(?P<snippet>.*?)</(?:a|div)>)?',
+        re.DOTALL,
+    )
+
+    results = []
+    for match in pattern.finditer(html_text):
+        title = html.unescape(_strip_tags(match.group("title"))).strip()
+        href = _extract_ddg_url(html.unescape(match.group("href")).strip())
+        snippet = html.unescape(_strip_tags(match.group("snippet") or "")).strip()
+        if not title or not href:
+            continue
+        results.append({"title": title, "url": href, "snippet": snippet})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _format_web_context(results: list[dict]) -> str:
+    if not results:
+        return ""
+    lines = ["Web search results:"]
+    for index, item in enumerate(results, start=1):
+        lines.append(f"{index}. {item['title']}")
+        lines.append(f"   URL: {item['url']}")
+        if item["snippet"]:
+            lines.append(f"   Snippet: {item['snippet']}")
+    return "\n".join(lines)
+
+
+def _extract_page_text(html_text: str, max_chars: int = 1200) -> str:
+    match = re.search(r"<body[^>]*>(.*?)</body>", html_text, re.DOTALL | re.IGNORECASE)
+    body = match.group(1) if match else html_text
+    body = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", body)
+    body = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", body)
+    text = html.unescape(_strip_tags(body))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
+
+
+def _fetch_page_summaries(results: list[dict], timeout: int = 15, max_pages: int = 3) -> list[dict]:
+    pages = []
+    headers = {"User-Agent": "subit-t/0.3.0"}
+    for item in results[:max_pages]:
+        try:
+            response = requests.get(item["url"], headers=headers, timeout=timeout)
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type", "")
+            if "text/html" not in content_type:
+                pages.append(
+                    {
+                        "title": item["title"],
+                        "url": item["url"],
+                        "content": f"Skipped non-HTML content ({content_type}).",
+                    }
+                )
+                continue
+            pages.append(
+                {
+                    "title": item["title"],
+                    "url": item["url"],
+                    "content": _extract_page_text(response.text),
+                }
+            )
+        except Exception as exc:
+            pages.append(
+                {
+                    "title": item["title"],
+                    "url": item["url"],
+                    "content": f"Fetch failed: {exc}",
+                }
+            )
+    return pages
+
+
+def _format_page_context(pages: list[dict]) -> str:
+    if not pages:
+        return ""
+    lines = ["Fetched page excerpts:"]
+    for index, item in enumerate(pages, start=1):
+        lines.append(f"{index}. {item['title']}")
+        lines.append(f"   URL: {item['url']}")
+        if item["content"]:
+            lines.append(f"   Content: {item['content']}")
+    return "\n".join(lines)
+
+
+def cmd_ollama(args):
+    from subit_t import encode
+    from subit_t.injector import build_prompt
+
+    text = args.text
+    result = encode(text)
+    web_results = []
+    page_summaries = []
+
+    if args.web:
+        try:
+            web_results = _duckduckgo_search(text, limit=args.web_k, timeout=args.web_timeout)
+        except Exception as exc:
+            print(f"Web search failed: {exc}")
+            sys.exit(1)
+
+    if web_results and args.fetch_pages:
+        page_summaries = _fetch_page_summaries(
+            web_results,
+            timeout=args.fetch_timeout,
+            max_pages=args.fetch_pages,
+        )
+
+    extra_parts = [_format_web_context(web_results), _format_page_context(page_summaries)]
+    extra = "\n\n".join(part for part in extra_parts if part)
+    prompt = build_prompt(result.target_state, result.operator, text, extra=extra)
+
+    user_text = text
+    if web_results:
+        user_text = (
+            f"{text}\n\n"
+            "Use the supplied web results when they are relevant. "
+            "If they conflict, prefer the cited URLs over prior assumptions."
+        )
+    if page_summaries:
+        user_text += (
+            "\nUse fetched page excerpts as higher-confidence evidence than search-result titles alone. "
+            "Only state facts that are supported by the fetched content."
+        )
+
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/chat",
+            json={
+                "model": args.model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": user_text},
+                ],
+            },
+            timeout=args.timeout,
+        )
+        response.raise_for_status()
+    except requests.exceptions.ConnectionError:
+        print("Ollama is not running on http://localhost:11434")
+        sys.exit(1)
+    except Exception as exc:
+        print(f"Ollama request failed: {exc}")
+        sys.exit(1)
+
+    content = response.json()["message"]["content"]
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "current_state": result.current_state.to_dict(),
+                    "operator": result.operator.value,
+                    "target_state": result.target_state.to_dict(),
+                    "web_results": web_results,
+                    "page_summaries": page_summaries,
+                    "prompt": prompt,
+                    "response": content,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    print(f"\n  {result.current_state.name}  {result.operator.symbol}({result.operator.value})  ->  {result.target_state.name}\n")
+    if web_results:
+        print("  Web results:")
+        for item in web_results:
+            print(f"  - {item['title']}")
+            print(f"    {item['url']}")
+        print()
+    if page_summaries:
+        print("  Fetched pages:")
+        for item in page_summaries:
+            print(f"  - {item['title']}")
+            print(f"    {item['url']}")
+        print()
+    print(content)
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="subit",
@@ -201,6 +416,17 @@ def main():
     chain.add_argument("start", help="Starting state name")
     chain.add_argument("ops", nargs="+", help="Operators: WHO WHAT WHEN INV (or W T N I)")
 
+    ollama = sub.add_parser("ollama", help="Route text and send it to a local Ollama model")
+    ollama.add_argument("text", help="Input text to route")
+    ollama.add_argument("--model", default="llama3.2", help="Ollama model name")
+    ollama.add_argument("--timeout", type=int, default=60, help="Request timeout in seconds")
+    ollama.add_argument("--web", action="store_true", help="Run a web search first and include results in the prompt")
+    ollama.add_argument("--web-k", type=int, default=5, help="Number of web results to include")
+    ollama.add_argument("--web-timeout", type=int, default=20, help="Timeout for the web search request in seconds")
+    ollama.add_argument("--fetch-pages", type=int, default=0, help="Fetch the top N web result pages and include text excerpts")
+    ollama.add_argument("--fetch-timeout", type=int, default=15, help="Timeout for fetching each page in seconds")
+    ollama.add_argument("--json", action="store_true", help="Output routing and model response as JSON")
+
     args = parser.parse_args()
 
     if args.command == "profile":
@@ -213,6 +439,8 @@ def main():
         cmd_state(args)
     elif args.command == "chain":
         cmd_chain(args)
+    elif args.command == "ollama":
+        cmd_ollama(args)
     else:
         parser.print_help()
 
