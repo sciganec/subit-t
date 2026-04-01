@@ -1,78 +1,114 @@
 """
-SUBIT-T Example: Code Review Pipeline
+SUBIT-T example: code review pipeline with Ollama.
 
-Shows a full PRIME → LAUNCHER → CLOSER → COMMIT cycle
-using operator-driven transitions.
+Setup:
+    1. Install Ollama: https://ollama.com
+    2. Run: ollama pull llama3.2
+    3. Make sure Ollama is available on http://localhost:11434
+
+Then run:
+    python examples/code_review.py
 """
 
-from subit_t import State, Op, Router, encode, build_prompt
+import requests
+
+from subit_t import Router, build_prompt
+
+
+def call_llm(system_prompt: str, user_input: str, model: str = "llama3.2") -> str:
+    """Call a local Ollama model with a SUBIT-T system prompt."""
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/chat",
+            json={
+                "model": model,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input},
+                ],
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        return response.json()["message"]["content"]
+    except requests.exceptions.ConnectionError:
+        return "[Ollama not running - start it and try again]"
+    except Exception as exc:
+        return f"[Error: {exc}]"
+
+
+def make_agent(router: Router, state_name: str) -> None:
+    @router.on(state=state_name)
+    def agent(state, op, ctx):
+        user_input = ctx.get("text", "")
+        system_prompt = build_prompt(state, op, user_input)
+        response = call_llm(system_prompt, user_input)
+        return {"state": state.name, "response": response}
 
 
 def main():
-    print("=" * 56)
-    print("SUBIT-T — Code Review Pipeline Example")
-    print("=" * 56)
+    print("=" * 60)
+    print("SUBIT-T - Code Review Pipeline (Ollama / llama3.2)")
+    print("=" * 60)
 
     router = Router()
 
-    # Register agents
-    @router.on(state="LAUNCHER")
-    def launcher_agent(state, op, ctx):
-        return {"action": "start PR review", "files": ctx.get("files", [])}
+    for state_name in [
+        "PROBE",
+        "SCAN",
+        "AUDITOR",
+        "REFINER",
+        "DRIVER",
+        "LAUNCHER",
+        "COMMIT",
+        "COUNCIL",
+        "SPARK",
+        "TRIBUNAL",
+        "VERDICT",
+    ]:
+        make_agent(router, state_name)
 
-    @router.on(state="SCAN")
-    def scan_agent(state, op, ctx):
-        return {"action": "deep code analysis", "focus": "bugs, perf, style"}
+    def fallback(state, op, ctx):
+        user_input = ctx.get("text", "")
+        system_prompt = build_prompt(state, op, user_input)
+        response = call_llm(system_prompt, user_input)
+        return {"state": state.name, "response": response}
 
-    @router.on(state="REFINER")
-    def refiner_agent(state, op, ctx):
-        return {"action": "apply fixes", "mode": "precision edits"}
+    router.register(fallback)
 
-    @router.on(state="COMMIT")
-    def commit_agent(state, op, ctx):
-        return {"action": "commit changes", "message": "fix: apply review suggestions"}
-
-    # Run pipeline
-    print("\n── Text-based routing ────────────────────────────────")
-    texts = [
-        "Let's start reviewing the authentication PR.",
-        "Analyze the code — I see potential issues with the session handling.",
-        "Apply the fixes from the review — precision edits only.",
+    pipeline = [
+        "Let's start reviewing the authentication PR - it touches session handling.",
+        "Analyze the code - I see potential issues with the token expiry logic.",
+        "Apply the fixes from the review - precision edits only, do not refactor.",
         "Commit all changes and close the PR.",
     ]
 
-    for text in texts:
-        record = router.route_text(text, context={"files": ["auth.py", "session.py"]})
-        enc = record["encoding"]
-        tr  = record["transition"]
-        print(f"\n  Input:    {text[:55]}...")
-        print(f"  Current:  {enc['current_state']['name']} → Operator: {tr['operator']} → Next: {tr['result']['name']}")
-        if record["agent_result"]:
-            print(f"  Agent:    {record['agent_result']}")
+    print("\n-- Pipeline ----------------------------------------")
+    for text in pipeline:
+        print(f"\n  Input:   {text[:60]}...")
 
-    # Show operator chain
-    print("\n── Operator chain ────────────────────────────────────")
-    start = State.from_name("PROBE")
-    ops   = [Op.EXPAND, Op.ACT, Op.MERGE]
-    chain = router.chain(start, ops)
-    print(f"  Start: {start}")
-    for rec in chain:
-        tr = rec["transition"]
-        print(f"  {tr['source']['name']:12} {tr['symbol']}({tr['operator']:6}) → {tr['result']['name']}")
+        result = router.route_text(text, context={"text": text})
+        enc = result["encoding"]
+        transition = result["transition"]
+        agent_result = result.get("agent_result") or {}
 
-    # Show prompt injection
-    print("\n── Prompt injection example ──────────────────────────")
-    enc_result = encode("Analyze this code for security vulnerabilities")
-    tr = enc_result.current_state.apply(enc_result.operator)
-    prompt = build_prompt(tr.result, enc_result.operator, enc_result.current_state.name)
-    print(prompt)
+        print(
+            f"  State:   {enc['current_state']['name']} "
+            f"-> {transition['operator']}({transition['symbol']}) "
+            f"-> {transition['result']['name']}"
+        )
 
-    # Observability
-    print("\n── Observability ─────────────────────────────────────")
+        response = agent_result.get("response", "")
+        if response:
+            print(f"\n  Agent [{transition['result']['name']}]:")
+            for line in response.strip().split("\n"):
+                print(f"    {line}")
+
+    print("\n-- Observability -----------------------------------")
     print(f"  Op distribution: {router.op_distribution()}")
     print(f"  Stuck flags:     {router.stuck_detection()}")
     print(f"  Idempotent rate: {router.idempotent_rate():.1%}")
-    print()
 
 
 if __name__ == "__main__":

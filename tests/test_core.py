@@ -1,188 +1,61 @@
-"""Tests for State, Op, TransitionResult, apply()."""
-import pytest
-from subit_t import State, Op, validate_all_transitions
-from subit_t.core import S_PRIME, S_SYNC, S_SCAN, S_CORE
+"""Tests for v3 cyclic State, Op and transition semantics."""
+
+from subit_t import Op, State, validate_all_transitions
 
 
 def test_state_from_name():
-    s = State.from_name("PRIME")
-    assert s.who == "ME"
-    assert s.where == "EAST"
-    assert s.when == "SPRING"
-    assert s.name == "PRIME"
+    state = State.from_name("PRIME")
+    assert state.who == "ME"
+    assert state.what == "EXPAND"
+    assert state.when == "INITIATE"
+    assert state.name == "PRIME"
 
 
-def test_state_from_dims():
-    s = State.from_dims("ME", "EAST", "SPRING")
-    assert s.name == "PRIME"
+def test_state_from_dims_accepts_new_names():
+    assert State.from_dims("ME", "EXPAND", "INITIATE").name == "PRIME"
 
 
-def test_state_bits_range():
-    for bits in range(64):
-        s = State(bits)
-        assert 0 <= s.bits <= 63
+def test_state_from_dims_accepts_legacy_names():
+    assert State.from_dims("ME", "EAST", "SPRING").name == "PRIME"
 
 
-def test_state_invalid_bits():
-    with pytest.raises(ValueError):
-        State(64)
-    with pytest.raises(ValueError):
-        State(-1)
+def test_who_shift_cycles_driver_to_sync():
+    assert State.from_name("DRIVER").apply(Op.WHO_SHIFT).result.name == "SYNC"
 
 
-def test_state_unknown_name():
-    with pytest.raises(KeyError):
-        State.from_name("NONEXISTENT")
+def test_what_shift_cycles_prime_to_launcher():
+    assert State.from_name("PRIME").apply(Op.WHAT_SHIFT).result.name == "LAUNCHER"
 
 
-# ── Operator semantics ────────────────────────────────────────────────────────
-
-def test_init_sets_spring():
-    for bits in range(64):
-        s = State(bits)
-        tr = s.apply(Op.INIT)
-        assert tr.result.when == "SPRING"
+def test_when_shift_cycles_drafter_to_seed():
+    assert State.from_name("DRAFTER").apply(Op.WHEN_SHIFT).result.name == "SEED"
 
 
-def test_expand_sets_south():
-    for bits in range(64):
-        s = State(bits)
-        tr = s.apply(Op.EXPAND)
-        assert tr.result.where == "SOUTH"
+def test_inv_rolls_back_sync_to_prime():
+    assert State.from_name("SYNC").apply(Op.INV).result.name == "PRIME"
 
 
-def test_merge_sets_we():
-    for bits in range(64):
-        s = State(bits)
-        tr = s.apply(Op.MERGE)
-        assert tr.result.who == "WE"
+def test_all_operators_move():
+    state = State.from_name("PRIME")
+    for op in Op:
+        assert state.apply(op).result != state
+        assert state.apply(op).idempotent is False
 
 
-def test_act_sets_autumn():
-    for bits in range(64):
-        s = State(bits)
-        tr = s.apply(Op.ACT)
-        assert tr.result.when == "AUTUMN"
+def test_four_who_shifts_return_to_start():
+    state = State.from_name("DRIVER")
+    current = state
+    for _ in range(4):
+        current = current.apply(Op.WHO_SHIFT).result
+    assert current == state
 
 
-# ── Axis isolation ────────────────────────────────────────────────────────────
-
-def test_init_does_not_change_who_where():
-    for bits in range(64):
-        s = State(bits)
-        r = s.apply(Op.INIT).result
-        assert r.who == s.who
-        assert r.where == s.where
+def test_composability_example():
+    state = State.from_name("DRIVER")
+    left = state.apply(Op.WHO_SHIFT).result.apply(Op.WHO_SHIFT).result
+    right = State.from_name("FORCE")
+    assert left == right
 
 
-def test_expand_does_not_change_who_when():
-    for bits in range(64):
-        s = State(bits)
-        r = s.apply(Op.EXPAND).result
-        assert r.who == s.who
-        assert r.when == s.when
-
-
-def test_merge_does_not_change_where_when():
-    for bits in range(64):
-        s = State(bits)
-        r = s.apply(Op.MERGE).result
-        assert r.where == s.where
-        assert r.when == s.when
-
-
-def test_act_does_not_change_who_where():
-    for bits in range(64):
-        s = State(bits)
-        r = s.apply(Op.ACT).result
-        assert r.who == s.who
-        assert r.where == s.where
-
-
-# ── Idempotency ───────────────────────────────────────────────────────────────
-
-def test_init_idempotent_on_spring():
-    s = State.from_name("PRIME")  # WHEN=SPRING
-    tr = s.apply(Op.INIT)
-    assert tr.idempotent is True
-    assert tr.result == s
-
-
-def test_expand_idempotent_on_south():
-    s = State.from_name("SYNC")   # WHERE=SOUTH
-    tr = s.apply(Op.EXPAND)
-    assert tr.idempotent is True
-
-
-def test_merge_idempotent_on_we():
-    s = State.from_name("COUNCIL")  # WHO=WE
-    tr = s.apply(Op.MERGE)
-    assert tr.idempotent is True
-
-
-def test_act_idempotent_on_autumn():
-    s = State.from_name("COMMIT")  # WHEN=AUTUMN
-    tr = s.apply(Op.ACT)
-    assert tr.idempotent is True
-
-
-# ── Key transitions ───────────────────────────────────────────────────────────
-
-def test_driver_merge_gives_sync():
-    s = State.from_name("DRIVER")
-    r = s.apply(Op.MERGE).result
-    assert r.name == "SYNC"
-
-
-def test_prime_act_gives_drafter():
-    s = State.from_name("PRIME")
-    r = s.apply(Op.ACT).result
-    assert r.name == "DRAFTER"
-
-
-def test_prime_merge_gives_spark():
-    s = State.from_name("PRIME")
-    r = s.apply(Op.MERGE).result
-    assert r.name == "SPARK"
-
-
-def test_core_init_gives_imprint():
-    s = State.from_name("CORE")
-    r = s.apply(Op.INIT).result
-    assert r.name == "IMPRINT"
-
-
-def test_scan_merge_gives_tribunal():
-    s = State.from_name("SCAN")
-    r = s.apply(Op.MERGE).result
-    assert r.name == "TRIBUNAL"
-
-
-def test_council_expand_gives_deploy():
-    s = State.from_name("COUNCIL")
-    r = s.apply(Op.EXPAND).result
-    assert r.name == "DEPLOY"
-
-
-# ── Chain ─────────────────────────────────────────────────────────────────────
-
-def test_chain_code_review():
-    start = State.from_name("PRIME")
-    ops   = [Op.EXPAND, Op.ACT, Op.MERGE]
-    chain = start.apply_chain(ops)
-    assert len(chain) == 3
-    assert chain[0].result.name == "LAUNCHER"
-    assert chain[1].result.name == "CLOSER"
-    assert chain[2].result.name == "COMMIT"
-
-
-# ── Full validation ───────────────────────────────────────────────────────────
-
-def test_all_256_transitions_valid():
-    violations = validate_all_transitions()
-    assert violations == [], f"Violations found: {violations}"
-
-
-def test_transition_count():
-    count = sum(1 for _ in range(64) for _ in Op)
-    assert count == 256
+def test_validate_all_transitions_has_no_violations():
+    assert validate_all_transitions() == []

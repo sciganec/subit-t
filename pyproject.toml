@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "subit-t"
-version = "0.1.0"
+version = "0.3.0"
 description = "Archetypal routing layer for multi-agent AI systems"
 readme = "README.md"
 license = { text = "MIT" }
@@ -21,6 +21,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = []
+
+[project.scripts]
+subit = "subit_t.cli:main"
 
 [project.optional-dependencies]
 langchain = ["langchain>=0.1"]

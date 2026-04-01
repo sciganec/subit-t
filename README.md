@@ -1,29 +1,43 @@
 # SUBIT-T
 
-**Archetypal routing layer for multi-agent AI systems.**
+Archetypal routing layer for multi-agent AI systems.
 
-64 cognitive states × 4 semantic operators = 256 deterministic transitions.
+SUBIT-T v3 models the state space as:
+
+`State ~= Z4 x Z4 x Z4`
+
+with 64 states and 4 cyclic operators:
+
+- `WHO_SHIFT`: rotate `THEY -> YOU -> ME -> WE -> THEY`
+- `WHAT_SHIFT`: rotate `PRESERVE -> REDUCE -> EXPAND -> TRANSFORM -> PRESERVE`
+- `WHEN_SHIFT`: rotate `RELEASE -> INTEGRATE -> INITIATE -> SUSTAIN -> RELEASE`
+- `INV`: global rollback by `-1` on all three axes at once
+
+This gives:
+
+- zero idempotent transitions
+- closed algebra with no edge states
+- composable trajectories
+- deterministic rollback
+
+## Quick Start
 
 ```python
-from subit_t import encode, Router, build_prompt
+from subit_t import Router, encode, build_prompt
 
-# Encode text → state + operator
-result = encode("Review this code — I think there's a memory leak")
-print(result.current_state)  # SCAN
-print(result.operator)       # Op.ACT
-print(result.target_state)   # REFINER
+result = encode("Review this code - there is a memory leak")
+print(result.current_state)   # SCAN
+print(result.operator)        # Op.WHAT_SHIFT / Op.WHEN_SHIFT / ...
+print(result.target_state)    # immediate next state
 
-# Route to agent
 router = Router()
 
-@router.on(state="REFINER")
-def refiner(state, op, ctx):
-    return {"action": "apply precision edits"}
+@router.on(state="SPARK")
+def spark(state, op, ctx):
+    prompt = build_prompt(state, op, ctx.get("text", ""))
+    return {"prompt": prompt}
 
-record = router.route_text("Review this code...")
-
-# Build system prompt
-prompt = build_prompt(result.target_state, result.operator)
+record = router.route_text("Let's start reviewing the authentication PR")
 ```
 
 ## Installation
@@ -34,62 +48,55 @@ pip install subit-t
 
 ## Architecture
 
-```
+```text
 Text input
-    ↓
-Encoder (two-phase)
-    ↓ current_state + operator
-Transition: apply(state, op) → next_state
-    ↓
-Prompt injection: (state, op) → system prompt
-    ↓
-LLM agent response
+  -> Encoder
+  -> current_state + next-step operator
+  -> apply(state, op) -> next_state
+  -> prompt injection
+  -> LLM agent response
 ```
 
-### State space
+## State Space
 
-`State = WHO × WHERE × WHEN` — 64 states, 6-bit encoding.
+`State = WHO x WHAT x WHEN`
 
-| Dimension | Values | Semantic |
-|-----------|--------|----------|
-| WHO | ME / WE / YOU / THEY | Agent perspective |
-| WHERE | EAST / SOUTH / WEST / NORTH | Cognitive domain |
-| WHEN | SPRING / SUMMER / AUTUMN / WINTER | Process phase |
+| Axis | Values | Meaning |
+|------|--------|---------|
+| WHO  | THEY / YOU / ME / WE | Orientation of attention |
+| WHAT | PRESERVE / REDUCE / EXPAND / TRANSFORM | Operation on information |
+| WHEN | RELEASE / INTEGRATE / INITIATE / SUSTAIN | Phase of the cycle |
 
-### Operators
+## Operators
 
-Each operator mutates exactly **one axis**:
+| Op | Axis | Effect |
+|----|------|--------|
+| `WHO_SHIFT` | WHO | move one step forward on WHO |
+| `WHAT_SHIFT` | WHAT | move one step forward on WHAT |
+| `WHEN_SHIFT` | WHEN | move one step forward on WHEN |
+| `INV` | ALL | move one step backward on all axes |
 
-| Op | Symbol | Axis | Target | Semantic |
-|----|--------|------|--------|----------|
-| INIT | ⊕ | WHEN | SPRING | Restart phase |
-| EXPAND | ⊗ | WHERE | SOUTH | Shift to execution |
-| MERGE | ⊞ | WHO | WE | Expand to collective |
-| ACT | ⊖ | WHEN | AUTUMN | Close phase |
+Examples:
 
-### Two-phase encoder
+```python
+from subit_t import State, Op
 
-Unlike single-phase encoders, SUBIT-T encodes separately:
-1. **Current state** — where is the agent now?
-2. **Target state** — where should it go?
-3. **Operator** — which axis differs? → select operator for that axis.
-
-This eliminates the idempotent problem where current state and operator
-derive from the same signal.
+State.from_name("DRIVER").apply(Op.WHO_SHIFT).result.name  # SYNC
+State.from_name("SYNC").apply(Op.INV).result.name          # PRIME
+State.from_name("PRIME").apply(Op.WHAT_SHIFT).result.name  # LAUNCHER
+```
 
 ## Observability
 
 ```python
-router.op_distribution()   # {"INIT": 3, "ACT": 5, ...}
-router.stuck_detection()   # {"over_act": False, "no_init": True, ...}
-router.idempotent_rate()   # 0.12
+router.op_distribution()   # {"WHAT_SHIFT": 3, "WHEN_SHIFT": 1}
+router.stuck_detection()   # {"over_inv": False, "what_heavy": True, ...}
+router.idempotent_rate()   # 0.0
 ```
 
-Stuck detection flags:
-- `over_act` — >60% ACT ops: system stuck closing, never initiates
-- `no_init` — 0 INIT ops: generation never restarts
-- `no_merge` — 0 MERGE ops: never goes collective
-- `over_expand` — >60% EXPAND: always pushing to execution, no analysis
+## Compatibility
+
+The package still accepts old dimension names in `State.from_dims(...)` for compatibility, but the primary model is `WHO + WHAT + WHEN`.
 
 ## License
 

@@ -148,14 +148,14 @@ class Router:
         return counts
 
     def stuck_detection(self) -> dict[str, bool]:
-        """Detect pathological operator patterns."""
+        """Detect suspicious routing patterns in v3 history."""
         dist  = self.op_distribution()
         total = sum(dist.values()) or 1
         return {
-            "over_act":    dist.get("ACT",    0) / total > 0.6,
-            "no_init":     dist.get("INIT",   0) == 0,
-            "no_merge":    dist.get("MERGE",  0) == 0,
-            "over_expand": dist.get("EXPAND", 0) / total > 0.6,
+            "over_inv": dist.get("INV", 0) / total > 0.4,
+            "who_heavy": dist.get("WHO_SHIFT", 0) / total > 0.6,
+            "what_heavy": dist.get("WHAT_SHIFT", 0) / total > 0.6,
+            "when_heavy": dist.get("WHEN_SHIFT", 0) / total > 0.6,
         }
 
     def idempotent_rate(self) -> float:
