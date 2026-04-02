@@ -1,0 +1,11 @@
+<svg width="580" height="130" viewBox="0 0 580 130" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="8" y="8" width="114" height="114" rx="28" fill="#FFF9F0" stroke="#D6C4AA" stroke-width="3"/>
+  <circle cx="65" cy="65" r="34" fill="#0F766E" fill-opacity="0.10" stroke="#0F766E" stroke-width="2.5"/>
+  <circle cx="65" cy="65" r="14" fill="#0F766E"/>
+  <path d="M65 29V16" stroke="#0F766E" stroke-width="5" stroke-linecap="round"/>
+  <path d="M101 65H114" stroke="#C77812" stroke-width="5" stroke-linecap="round"/>
+  <path d="M65 101V114" stroke="#0F766E" stroke-width="5" stroke-linecap="round"/>
+  <path d="M16 65H29" stroke="#C77812" stroke-width="5" stroke-linecap="round"/>
+  <text x="150" y="62" fill="#162227" font-family="Space Grotesk, Arial, sans-serif" font-size="44" font-weight="700">SUBIT-T</text>
+  <text x="150" y="100" fill="#0F766E" font-family="IBM Plex Sans, Arial, sans-serif" font-size="22" font-weight="600" letter-spacing="0.12em">AUTONOMOUS ROUTING STUDIO</text>
+</svg>

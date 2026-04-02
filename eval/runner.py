@@ -23,13 +23,14 @@ def load_records(path: Path) -> list[dict]:
     return records
 
 
-def score_record(text: str, record: dict) -> dict:
-    result = encode(text)
+def score_record(text: str, record: dict, *, model_assisted: bool, model: str, timeout: int) -> dict:
+    result = encode(text, model_assisted=model_assisted, model=model, timeout=timeout)
     return {
         "current_state": result.current_state.name,
         "operator": result.operator.value,
         "next_state": result.target_state.name,
         "axis": result.axis_diff,
+        "model_assisted": result.model_assisted,
         "matches_current_state": result.current_state.name == record["expected_current_state"],
         "matches_operator": result.operator.value == record["expected_operator"],
         "matches_next_state": result.target_state.name == record["expected_next_state"],
@@ -37,7 +38,7 @@ def score_record(text: str, record: dict) -> dict:
     }
 
 
-def evaluate(records: list[dict]) -> dict:
+def evaluate(records: list[dict], *, model_assisted: bool, model: str, timeout: int) -> dict:
     totals = {
         "examples": 0,
         "current_state_correct": 0,
@@ -51,7 +52,7 @@ def evaluate(records: list[dict]) -> dict:
 
     for record in records:
         totals["examples"] += 1
-        scored = score_record(record["text"], record)
+        scored = score_record(record["text"], record, model_assisted=model_assisted, model=model, timeout=timeout)
         totals["current_state_correct"] += int(scored["matches_current_state"])
         totals["operator_correct"] += int(scored["matches_operator"])
         totals["next_state_correct"] += int(scored["matches_next_state"])
@@ -88,7 +89,10 @@ def evaluate(records: list[dict]) -> dict:
         if paraphrases:
             totals["paraphrase_examples"] += 1
             base_operator = scored["operator"]
-            if all(encode(text).operator.value == base_operator for text in paraphrases):
+            if all(
+                encode(text, model_assisted=model_assisted, model=model, timeout=timeout).operator.value == base_operator
+                for text in paraphrases
+            ):
                 totals["paraphrase_operator_consistent"] += 1
 
     examples = max(totals["examples"], 1)
@@ -112,15 +116,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run SUBIT-T encoder evaluation on a JSONL dataset.")
     parser.add_argument("--dataset", default="eval/gold.jsonl", help="Path to a JSONL dataset.")
     parser.add_argument("--show-failures", type=int, default=10, help="Number of failures to print.")
+    parser.add_argument("--model-assisted", action="store_true", help="Use the optional model-assisted encoder layer.")
+    parser.add_argument("--encoder-model", default="llama3.2", help="Ollama model used for model-assisted encoding.")
+    parser.add_argument("--encoder-timeout", type=int, default=20, help="Timeout for model-assisted encoding requests.")
     args = parser.parse_args()
 
     dataset_path = Path(args.dataset)
     if not dataset_path.is_absolute():
         dataset_path = (EVAL_DIR.parent / dataset_path).resolve()
     records = load_records(dataset_path)
-    report = evaluate(records)
+    report = evaluate(records, model_assisted=args.model_assisted, model=args.encoder_model, timeout=args.encoder_timeout)
 
     print(f"Dataset: {dataset_path}")
+    print(f"Model-assisted: {'on' if args.model_assisted else 'off'}")
     print(f"Examples: {report['totals']['examples']}")
     print(f"Current-state accuracy: {report['metrics']['current_state_accuracy']:.1%}")
     print(f"Operator accuracy:      {report['metrics']['operator_accuracy']:.1%}")

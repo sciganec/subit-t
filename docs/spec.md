@@ -1,5 +1,5 @@
 # SUBIT-T Technical Specification
-Version 0.3.0
+Version 0.3.1
 
 ## 1. Overview
 
@@ -80,6 +80,8 @@ It returns:
 
 The encoder still exposes per-axis distributions for observability.
 
+The default path is deterministic and heuristic-driven. The runtime can also enable an optional model-assisted path where a local Ollama model returns a structured routing hint. Invalid or missing hints do not change the safety contract: the encoder falls back to deterministic scoring.
+
 ## 6. Router
 
 Routing remains:
@@ -102,6 +104,8 @@ fn = registry[(tr.result, enc.operator)] or registry[tr.result] or registry[enc.
 
 The prompt layer now uses `WHAT` as the canonical axis name.
 
+Assistant workflows can add a second instruction layer through built-in profiles such as `review`, `research`, `incident`, `planner`, and `coding`.
+
 ## 8. Observability
 
 Router observability includes:
@@ -109,6 +113,8 @@ Router observability includes:
 - state distribution
 - v3 skew flags such as `who_heavy`, `what_heavy`, `when_heavy`, `over_inv`
 - idempotent rate, expected to be `0.0` in v3
+
+The repository also includes an `eval/` harness with seed gold/challenge datasets and a runner for repeatable encoder checks.
 
 ## 9. Compatibility Layer
 

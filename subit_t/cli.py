@@ -18,13 +18,19 @@ import sys
 from .runtime.chat import run_chat_session
 from .runtime.ollama import call_ollama
 from .runtime.web import build_user_text, needs_web_search, prepare_external_context
+from .prompts import build_assistant_extra, list_assistants
 
 
 def cmd_profile(args):
     from subit_t import encode
     from subit_t.canon import STATE_TYPE, STATE_WEIGHT
 
-    result = encode(args.text)
+    result = encode(
+        args.text,
+        model_assisted=args.model_assisted_encoder,
+        model=args.encoder_model,
+        timeout=args.encoder_timeout,
+    )
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
@@ -63,7 +69,12 @@ def cmd_route(args):
     from subit_t import encode
     from subit_t.injector import build_prompt
 
-    result = encode(args.text)
+    result = encode(
+        args.text,
+        model_assisted=args.model_assisted_encoder,
+        model=args.encoder_model,
+        timeout=args.encoder_timeout,
+    )
     transition = result.current_state.apply(result.operator)
 
     if args.json:
@@ -182,7 +193,12 @@ def cmd_ollama(args):
     from subit_t.injector import build_prompt
 
     text = args.text
-    result = encode(text)
+    result = encode(
+        text,
+        model_assisted=args.model_assisted_encoder,
+        model=args.encoder_model,
+        timeout=args.encoder_timeout,
+    )
     use_web = args.web or (args.auto_web and needs_web_search(text))
     auto_web_triggered = bool(args.auto_web and not args.web and use_web)
 
@@ -202,7 +218,9 @@ def cmd_ollama(args):
         use_web = False
         auto_web_triggered = False
 
-    prompt = build_prompt(result.target_state, result.operator, text, extra=extra)
+    assistant_extra = build_assistant_extra(args.assistant)
+    prompt_extra = "\n\n".join(part for part in [assistant_extra, extra] if part)
+    prompt = build_prompt(result.target_state, result.operator, text, extra=prompt_extra)
     user_text = build_user_text(text, web_results, page_summaries)
 
     try:
@@ -269,10 +287,15 @@ def cmd_chat(args):
         fetch_pages=args.fetch_pages,
         fetch_timeout=args.fetch_timeout,
         show_sources=args.show_sources,
+        assistant=args.assistant,
+        model_assisted_encoder=args.model_assisted_encoder,
+        encoder_model=args.encoder_model,
+        encoder_timeout=args.encoder_timeout,
     )
 
 
 def main():
+    assistant_names = ", ".join(list_assistants())
     parser = argparse.ArgumentParser(
         prog="subit",
         description="SUBIT-T - cyclic archetypal routing for multi-agent AI systems",
@@ -283,11 +306,17 @@ def main():
     profile.add_argument("text")
     profile.add_argument("--json", action="store_true", help="Output as JSON")
     profile.add_argument("--brief", action="store_true", help="Skip state distribution")
+    profile.add_argument("--model-assisted-encoder", action="store_true", help="Use the optional model-assisted encoder layer")
+    profile.add_argument("--encoder-model", default="llama3.2", help="Ollama model for model-assisted encoding")
+    profile.add_argument("--encoder-timeout", type=int, default=20, help="Timeout for model-assisted encoding")
 
     route = sub.add_parser("route", help="Full routing pipeline")
     route.add_argument("text")
     route.add_argument("--json", action="store_true")
     route.add_argument("--prompt", action="store_true", help="Print system prompt")
+    route.add_argument("--model-assisted-encoder", action="store_true", help="Use the optional model-assisted encoder layer")
+    route.add_argument("--encoder-model", default="llama3.2", help="Ollama model for model-assisted encoding")
+    route.add_argument("--encoder-timeout", type=int, default=20, help="Timeout for model-assisted encoding")
 
     canon = sub.add_parser("canon", help="Show all 64 states")
     canon.add_argument("--who", help="Filter by WHO")
@@ -314,6 +343,10 @@ def main():
     ollama.add_argument("--fetch-pages", type=int, default=0, help="Fetch the top N web result pages and include text excerpts")
     ollama.add_argument("--fetch-timeout", type=int, default=15, help="Timeout for fetching each page in seconds")
     ollama.add_argument("--json", action="store_true", help="Output routing and model response as JSON")
+    ollama.add_argument("--assistant", default="general", help=f"Assistant profile to use ({assistant_names})")
+    ollama.add_argument("--model-assisted-encoder", action="store_true", help="Use the optional model-assisted encoder layer")
+    ollama.add_argument("--encoder-model", default="llama3.2", help="Ollama model for model-assisted encoding")
+    ollama.add_argument("--encoder-timeout", type=int, default=20, help="Timeout for model-assisted encoding")
 
     chat = sub.add_parser("chat", help="Start an interactive local chat session with Ollama")
     chat.add_argument("--model", default="llama3.2", help="Ollama model name")
@@ -327,6 +360,10 @@ def main():
     chat.add_argument("--fetch-pages", type=int, default=0, help="Fetch the top N web result pages and include text excerpts")
     chat.add_argument("--fetch-timeout", type=int, default=15, help="Timeout for fetching each page in seconds")
     chat.add_argument("--show-sources", action="store_true", help="Print fetched web source links in chat mode")
+    chat.add_argument("--assistant", default="general", help=f"Assistant profile to use ({assistant_names})")
+    chat.add_argument("--model-assisted-encoder", action="store_true", help="Use the optional model-assisted encoder layer")
+    chat.add_argument("--encoder-model", default="llama3.2", help="Ollama model for model-assisted encoding")
+    chat.add_argument("--encoder-timeout", type=int, default=20, help="Timeout for model-assisted encoding")
 
     args = parser.parse_args()
 

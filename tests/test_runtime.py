@@ -53,10 +53,15 @@ def test_chat_session_auto_web_flow_emits_sources_and_response():
     outputs = []
     web_results = [{"title": "BBC Weather", "url": "https://example.com/weather", "snippet": "Forecast"}]
     page_summaries = [{"title": "BBC Weather", "url": "https://example.com/weather", "content": "Sunny with clouds"}]
+    captured = {}
+
+    def fake_call_ollama(**kwargs):
+        captured["messages"] = kwargs["messages"]
+        return "Kyiv will be mild today."
 
     with (
         patch("subit_t.runtime.chat.prepare_external_context", return_value=(web_results, page_summaries, "Web search results:\n1. BBC Weather")),
-        patch("subit_t.runtime.chat.call_ollama", return_value="Kyiv will be mild today."),
+        patch("subit_t.runtime.chat.call_ollama", side_effect=fake_call_ollama),
     ):
         run_chat_session(
             model="llama3.2",
@@ -69,6 +74,7 @@ def test_chat_session_auto_web_flow_emits_sources_and_response():
             fetch_pages=1,
             fetch_timeout=15,
             show_sources=True,
+            assistant="research",
             input_fn=lambda prompt: next(inputs),
             output_fn=outputs.append,
         )
@@ -78,6 +84,7 @@ def test_chat_session_auto_web_flow_emits_sources_and_response():
     assert "[source] BBC Weather - https://example.com/weather" in joined
     assert "Assistant [" in joined
     assert "Kyiv will be mild today." in joined
+    assert "Assistant profile: Research Assistant" in captured["messages"][0]["content"]
 
 
 def test_chat_session_falls_back_when_web_search_fails():

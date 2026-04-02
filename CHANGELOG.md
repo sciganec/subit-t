@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.1] - 2026-04-01
+
+### Runtime and packaging
+- Added explicit runtime dependency on `requests`
+- Included `integrations` in the packaged distribution
+- Synced runtime web user-agent strings to the current package version
+
+### Assistant workflows
+- Added assistant profiles for `general`, `review`, `research`, `incident`, `planner`, and `coding`
+- Extended `subit chat` and `subit ollama` with `--assistant`
+- Kept web-assisted flows resilient: web lookup failures now fall back to local-only responses
+
+### Encoder and evaluation
+- Expanded `eval/gold.jsonl` and `eval/challenge.jsonl`
+- Added optional model-assisted encoder hints through local Ollama
+- Exposed assisted-eval CLI flags in `eval/runner.py`
+- Brought current seed datasets to full accuracy and paraphrase consistency
+
+### Quality
+- Added smoke tests for runtime, prompts, and integrations
+- Hardened Ollama payload validation and assistant runtime behavior
+
 ## [0.3.0] - 2026-03-31
 
 ### Breaking changes

@@ -20,7 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = []
+dependencies = ["requests>=2.31"]
 
 [project.scripts]
 subit = "subit_t.cli:main"
@@ -37,11 +37,11 @@ Issues     = "https://github.com/sciganec/subit-t/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts   = "-v"
+addopts   = "-v -p no:cacheprovider"
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
 [tool.setuptools.packages.find]
-include = ["subit_t*"]
+include = ["subit_t*", "integrations*"]

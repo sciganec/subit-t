@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from ..encoder import encode
 from ..injector import build_prompt
+from ..prompts import build_assistant_extra
 from .ollama import call_ollama
 from .web import build_user_text, needs_web_search, prepare_external_context
 
@@ -22,6 +23,10 @@ def run_chat_session(
     fetch_pages: int,
     fetch_timeout: int,
     show_sources: bool,
+    assistant: str = "general",
+    model_assisted_encoder: bool = False,
+    encoder_model: str = "llama3.2",
+    encoder_timeout: int = 20,
     input_fn: Callable[[str], str] = input,
     output_fn: Callable[[str], None] = print,
 ) -> None:
@@ -46,7 +51,12 @@ def run_chat_session(
             output_fn("Commands: /exit, /quit, /help\n")
             continue
 
-        result = encode(text)
+        result = encode(
+            text,
+            model_assisted=model_assisted_encoder,
+            model=encoder_model,
+            timeout=encoder_timeout,
+        )
         use_web = web or (auto_web and needs_web_search(text))
         auto_web_triggered = bool(auto_web and not web and use_web)
 
@@ -66,7 +76,9 @@ def run_chat_session(
             use_web = False
             auto_web_triggered = False
 
-        prompt = build_prompt(result.target_state, result.operator, text, extra=extra)
+        assistant_extra = build_assistant_extra(assistant)
+        prompt_extra = "\n\n".join(part for part in [assistant_extra, extra] if part)
+        prompt = build_prompt(result.target_state, result.operator, text, extra=prompt_extra)
         user_text = build_user_text(text, web_results, page_summaries)
         messages = [{"role": "system", "content": prompt}, *history, {"role": "user", "content": user_text}]
 

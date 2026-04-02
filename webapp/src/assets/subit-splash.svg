@@ -1,0 +1,22 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="900" rx="48" fill="#FFF9F0"/>
+  <rect x="24" y="24" width="1152" height="852" rx="36" stroke="#D9C7AF" stroke-width="2"/>
+  <circle cx="600" cy="450" r="220" fill="#0F766E" fill-opacity="0.07"/>
+  <circle cx="600" cy="450" r="150" fill="#0F766E" fill-opacity="0.08" stroke="#0F766E" stroke-width="3"/>
+  <circle cx="600" cy="450" r="72" fill="#0F766E"/>
+  <circle cx="600" cy="160" r="54" fill="#C77812" fill-opacity="0.12"/>
+  <circle cx="930" cy="450" r="54" fill="#C77812" fill-opacity="0.12"/>
+  <circle cx="600" cy="740" r="54" fill="#C77812" fill-opacity="0.12"/>
+  <circle cx="270" cy="450" r="54" fill="#C77812" fill-opacity="0.12"/>
+  <path d="M600 252V126" stroke="#0F766E" stroke-width="12" stroke-linecap="round"/>
+  <path d="M798 450H924" stroke="#C77812" stroke-width="12" stroke-linecap="round"/>
+  <path d="M600 648V774" stroke="#0F766E" stroke-width="12" stroke-linecap="round"/>
+  <path d="M276 450H402" stroke="#C77812" stroke-width="12" stroke-linecap="round"/>
+  <path d="M738 312L845 205" stroke="#0F766E" stroke-width="10" stroke-linecap="round"/>
+  <path d="M738 588L845 695" stroke="#C77812" stroke-width="10" stroke-linecap="round"/>
+  <path d="M462 588L355 695" stroke="#0F766E" stroke-width="10" stroke-linecap="round"/>
+  <path d="M462 312L355 205" stroke="#C77812" stroke-width="10" stroke-linecap="round"/>
+  <text x="102" y="134" fill="#0F766E" font-family="IBM Plex Sans, Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="0.18em">WHO • WHAT • WHEN • INV</text>
+  <text x="96" y="792" fill="#162227" font-family="Space Grotesk, Arial, sans-serif" font-size="64" font-weight="700">SUBIT-T AI</text>
+  <text x="96" y="838" fill="#5F6D72" font-family="IBM Plex Sans, Arial, sans-serif" font-size="28">Deliberate cognitive routing for teams, studios, and local intelligence systems.</text>
+</svg>

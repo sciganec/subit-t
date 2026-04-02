@@ -1,29 +1,19 @@
-"""
-SUBIT-T Guards — soft intercepts for semantically invalid transitions.
-
-Three confirmed problem cases where v1 XOR produces incoherent routing:
-  DRIVER   ⊕ SYNC  → VOID    (active executor collapses to null)
-  EXECUTOR ⊕ SCAN  → SHADOW  (reactive executor becomes hidden threat)
-  COUNCIL  ⊕ PRIME → QUEUE   (collective analysis collapses to passive queue)
-
-Root cause: XOR flips WHEN to WINTER (idle) when context demands active phase.
-
-Guards are only relevant when using v1 XOR routing (kept for compatibility).
-v2 operator routing does not require guards.
-"""
+"""SUBIT-T guards for legacy XOR compatibility analysis."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Callable, Optional
-from .core import State, Op
+
+from .core import State
 
 
 @dataclass
 class GuardResult:
-    triggered:   bool
-    original:    State
+    triggered: bool
+    original: State
     replacement: State
-    reason:      str
+    reason: str
 
 
 GuardFn = Callable[[State, State, State], Optional[GuardResult]]
@@ -33,48 +23,62 @@ def _s(name: str) -> State:
     return State.from_name(name)
 
 
-# ── Three specific guards ─────────────────────────────────────────────────────
-
 def guard_driver_sync(current: State, impulse: State, result: State) -> Optional[GuardResult]:
-    """DRIVER ⊕ SYNC → VOID  →  reroute to COMMIT."""
+    """Prevent DRIVER xor SYNC from collapsing into an unusable latent state."""
     if current.name == "DRIVER" and impulse.name == "SYNC":
-        return GuardResult(True, result, _s("COMMIT"),
-            "DRIVER absorbed by SYNC → VOID prevented; rerouted to COMMIT")
+        return GuardResult(
+            True,
+            result,
+            _s("COMMIT"),
+            "DRIVER absorbed by SYNC prevented; rerouted to COMMIT",
+        )
     return None
 
 
 def guard_executor_scan(current: State, impulse: State, result: State) -> Optional[GuardResult]:
-    """EXECUTOR ⊕ SCAN → SHADOW  →  reroute to FILTER."""
+    """Prevent EXECUTOR xor SCAN from collapsing into a hidden threat state."""
     if current.name == "EXECUTOR" and impulse.name == "SCAN":
-        return GuardResult(True, result, _s("FILTER"),
-            "EXECUTOR critiqued → SHADOW prevented; rerouted to FILTER")
+        return GuardResult(
+            True,
+            result,
+            _s("FILTER"),
+            "EXECUTOR critiqued by SCAN prevented; rerouted to FILTER",
+        )
     return None
 
 
 def guard_council_prime(current: State, impulse: State, result: State) -> Optional[GuardResult]:
-    """COUNCIL ⊕ PRIME → QUEUE  →  reroute to SPARK."""
+    """Prevent COUNCIL xor PRIME from collapsing into passive queueing."""
     if current.name == "COUNCIL" and impulse.name == "PRIME":
-        return GuardResult(True, result, _s("SPARK"),
-            "COUNCIL + PRIME → QUEUE prevented; rerouted to SPARK")
+        return GuardResult(
+            True,
+            result,
+            _s("SPARK"),
+            "COUNCIL plus PRIME prevented from collapsing; rerouted to SPARK",
+        )
     return None
 
 
 def guard_winter_collapse(current: State, impulse: State, result: State) -> Optional[GuardResult]:
     """
-    General guard: active + active → WINTER is always wrong.
-    Exception: self-cancel (A ⊕ A = CORE) is legitimate — do not intercept.
+    General compat guard: active + active -> RELEASE is suspicious in XOR space.
+
+    Self-cancel is legitimate and should not be intercepted.
     """
-    if current == impulse:  # self-cancel is legitimate
+    if current == impulse:
         return None
-    active = {"SPRING", "SUMMER"}
-    if current.when in active and impulse.when in active and result.when == "WINTER":
-        fallback_bits = (current.bits & 0b111100) | 0b11  # keep WHO+WHERE, force WHEN=SUMMER
-        return GuardResult(True, result, State(fallback_bits),
-            "active+active→WINTER collapse prevented; forced WHEN=SUMMER")
+
+    active = {"INITIATE", "SUSTAIN"}
+    if current.when in active and impulse.when in active and result.when == "RELEASE":
+        fallback_bits = (current.bits & 0b111100) | 0b11
+        return GuardResult(
+            True,
+            result,
+            State(fallback_bits),
+            "active+active->RELEASE collapse prevented; forced WHEN=SUSTAIN",
+        )
     return None
 
-
-# ── Default guard chain ───────────────────────────────────────────────────────
 
 DEFAULT_GUARDS: list[GuardFn] = [
     guard_driver_sync,

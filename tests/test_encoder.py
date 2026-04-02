@@ -1,5 +1,7 @@
 """Tests for the v3 encoder."""
 
+from unittest.mock import patch
+
 from subit_t import Op, encode
 
 
@@ -67,3 +69,29 @@ def test_encode_to_dict_contains_what_and_where_alias():
     assert "distributions" in as_dict
     assert "what" in as_dict["distributions"]
     assert "where" in as_dict["distributions"]
+
+
+def test_encode_model_assisted_hint_can_shift_result():
+    hint = {
+        "current_who": "THEY",
+        "current_what": "EXPAND",
+        "current_when": "SUSTAIN",
+        "target_who": "THEY",
+        "target_what": "EXPAND",
+        "target_when": "SUSTAIN",
+        "prefer_inv": True,
+        "confidence": 0.9,
+        "reason": "live factual lookup",
+    }
+    with patch("subit_t.encoder._model_suggestion", return_value=hint):
+        result = encode("What is the current EUR/USD exchange rate today?", model_assisted=True)
+    assert result.operator == Op.INV
+    assert result.model_assisted is True
+    assert result.model_reason == "live factual lookup"
+
+
+def test_encode_model_assisted_falls_back_when_no_hint():
+    with patch("subit_t.encoder._model_suggestion", return_value=None):
+        result = encode("Review this code and find the bug", model_assisted=True)
+    assert isinstance(result.operator, Op)
+    assert result.model_assisted is False

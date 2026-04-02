@@ -8,6 +8,8 @@ Phase 3: choose one operator for the next step in the trajectory
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 
 from .canon import CANON, STATE_WEIGHT, _make_bits
@@ -81,6 +83,8 @@ _LOOKUP_VERBS = [
     "find",
     "look up",
     "search",
+    "tell me",
+    "give me",
     "what happened",
     "what is",
     "who is",
@@ -173,6 +177,119 @@ def _boost(scores: dict[str, int], key: str, amount: int) -> None:
     scores[key] = scores.get(key, 0) + amount
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _extract_json_object(text: str) -> dict | None:
+    text = text.strip()
+    if not text:
+        return None
+    candidates = [text]
+    if "```" in text:
+        fenced = text.split("```")
+        candidates.extend(chunk for chunk in fenced if "{" in chunk and "}" in chunk)
+    for candidate in candidates:
+        start = candidate.find("{")
+        end = candidate.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            continue
+        snippet = candidate[start : end + 1]
+        try:
+            payload = json.loads(snippet)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _model_suggestion(
+    *,
+    text: str,
+    heuristic_current: State,
+    heuristic_target: State,
+    heuristic_operator: str,
+    model: str,
+    timeout: int,
+) -> dict | None:
+    try:
+        from .runtime.ollama import call_ollama
+    except Exception:
+        return None
+
+    prompt = (
+        "You classify text into SUBIT-T v3 dimensions.\n"
+        "Allowed values:\n"
+        "WHO = THEY | YOU | ME | WE\n"
+        "WHAT = PRESERVE | REDUCE | EXPAND | TRANSFORM\n"
+        "WHEN = RELEASE | INTEGRATE | INITIATE | SUSTAIN\n"
+        "Return JSON only with keys:\n"
+        "current_who,current_what,current_when,target_who,target_what,target_when,prefer_inv,confidence,reason\n"
+        "Use confidence between 0 and 1.\n"
+        "Prefer_inv is true only for explicit rollback/global recovery cases.\n"
+        f"Heuristic prior current=({heuristic_current.who},{heuristic_current.what},{heuristic_current.when}) "
+        f"target=({heuristic_target.who},{heuristic_target.what},{heuristic_target.when}) "
+        f"operator={heuristic_operator}."
+    )
+    try:
+        content = call_ollama(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": text},
+            ],
+            timeout=timeout,
+        )
+    except Exception:
+        return None
+
+    payload = _extract_json_object(content)
+    if not payload:
+        return None
+
+    valid_who = set(_WHO_ORDER)
+    valid_what = set(_WHAT_ORDER)
+    valid_when = set(_WHEN_ORDER)
+    required = [
+        "current_who",
+        "current_what",
+        "current_when",
+        "target_who",
+        "target_what",
+        "target_when",
+    ]
+    if not all(key in payload for key in required):
+        return None
+
+    if payload["current_who"] not in valid_who or payload["target_who"] not in valid_who:
+        return None
+    if payload["current_what"] not in valid_what or payload["target_what"] not in valid_what:
+        return None
+    if payload["current_when"] not in valid_when or payload["target_when"] not in valid_when:
+        return None
+
+    try:
+        confidence = float(payload.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    return {
+        "current_who": payload["current_who"],
+        "current_what": payload["current_what"],
+        "current_when": payload["current_when"],
+        "target_who": payload["target_who"],
+        "target_what": payload["target_what"],
+        "target_when": payload["target_when"],
+        "prefer_inv": bool(payload.get("prefer_inv", False)),
+        "confidence": max(0.0, min(1.0, confidence)),
+        "reason": str(payload.get("reason", "model_hint")).strip() or "model_hint",
+    }
+
+
 @dataclass
 class EncoderResult:
     current_state: State
@@ -189,6 +306,8 @@ class EncoderResult:
     dominant_state_bits: int
     routing_reason: str
     signal_summary: dict[str, bool]
+    model_assisted: bool
+    model_reason: str | None
 
     @property
     def where_dist(self) -> dict[str, float]:
@@ -210,6 +329,8 @@ class EncoderResult:
             "op_confidence": self.op_confidence,
             "routing_reason": self.routing_reason,
             "signal_summary": self.signal_summary,
+            "model_assisted": self.model_assisted,
+            "model_reason": self.model_reason,
             "operator_distribution": self.operator_distribution,
             "distributions": {
                 "who": self.who_dist,
@@ -221,7 +342,13 @@ class EncoderResult:
         }
 
 
-def encode(text: str) -> EncoderResult:
+def encode(
+    text: str,
+    *,
+    model_assisted: bool | None = None,
+    model: str | None = None,
+    timeout: int = 20,
+) -> EncoderResult:
     """
     Encode text into current state, desired target and a single next-step operator.
 
@@ -230,6 +357,9 @@ def encode(text: str) -> EncoderResult:
     """
 
     lowered = text.lower()
+    if model_assisted is None:
+        model_assisted = _env_flag("SUBIT_ENCODER_MODEL_ASSISTED", default=False)
+    model = model or os.getenv("SUBIT_ENCODER_MODEL", "llama3.2")
 
     factual_lookup = _contains_any(lowered, _FACTUAL_LOOKUP_TERMS) and _contains_any(lowered, _LOOKUP_VERBS)
     review_request = _contains_any(lowered, _REVIEW_TERMS)
@@ -254,6 +384,7 @@ def encode(text: str) -> EncoderResult:
         _boost(who_cur_scores, "THEY", 4)
         _boost(what_cur_scores, "EXPAND", 3)
         _boost(when_cur_scores, "SUSTAIN", 2)
+        who_cur_scores["YOU"] = max(0, who_cur_scores.get("YOU", 0) - 2)
     if review_request:
         _boost(who_cur_scores, "YOU", 4)
         _boost(what_cur_scores, "REDUCE", 4)
@@ -309,6 +440,7 @@ def encode(text: str) -> EncoderResult:
     if factual_lookup:
         rollback_score += 3
         _boost(who_target_scores, "THEY", 2)
+        who_target_scores["YOU"] = max(0, who_target_scores.get("YOU", 0) - 2)
     if review_request:
         _boost(who_target_scores, "YOU", 2)
         _boost(what_target_scores, "EXPAND", 4)
@@ -349,6 +481,39 @@ def encode(text: str) -> EncoderResult:
     who_target, _ = _pick(who_target_scores, who_cur)
     what_target, _ = _pick(what_target_scores, what_cur)
     when_target, _ = _pick(when_target_scores, when_cur)
+
+    heuristic_current = State(_make_bits(who_cur, what_cur, when_cur))
+    heuristic_target = State(_make_bits(who_target, what_target, when_target))
+    model_reason = None
+    model_used = False
+
+    if model_assisted:
+        hint = _model_suggestion(
+            text=text,
+            heuristic_current=heuristic_current,
+            heuristic_target=heuristic_target,
+            heuristic_operator="PREVIEW",
+            model=model,
+            timeout=timeout,
+        )
+        if hint and hint["confidence"] >= 0.45:
+            boost = max(1, round(hint["confidence"] * 4))
+            _boost(who_cur_scores, hint["current_who"], boost)
+            _boost(what_cur_scores, hint["current_what"], boost)
+            _boost(when_cur_scores, hint["current_when"], boost)
+            _boost(who_target_scores, hint["target_who"], boost)
+            _boost(what_target_scores, hint["target_what"], boost)
+            _boost(when_target_scores, hint["target_when"], boost)
+            if hint["prefer_inv"]:
+                rollback_score += boost
+            who_cur, _ = _pick(who_cur_scores, who_cur)
+            what_cur, _ = _pick(what_cur_scores, what_cur)
+            when_cur, _ = _pick(when_cur_scores, when_cur)
+            who_target, _ = _pick(who_target_scores, who_target)
+            what_target, _ = _pick(what_target_scores, what_target)
+            when_target, _ = _pick(when_target_scores, when_target)
+            model_reason = hint["reason"]
+            model_used = True
 
     current_state = State(_make_bits(who_cur, what_cur, when_cur))
     desired_state = State(_make_bits(who_target, what_target, when_target))
@@ -480,4 +645,6 @@ def encode(text: str) -> EncoderResult:
             "deployment_failure_request": deployment_failure_request,
             "audit_request": audit_request,
         },
+        model_assisted=model_used,
+        model_reason=model_reason,
     )

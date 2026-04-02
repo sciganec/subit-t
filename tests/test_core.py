@@ -27,8 +27,8 @@ def test_what_shift_cycles_prime_to_launcher():
     assert State.from_name("PRIME").apply(Op.WHAT_SHIFT).result.name == "LAUNCHER"
 
 
-def test_when_shift_cycles_drafter_to_seed():
-    assert State.from_name("DRAFTER").apply(Op.WHEN_SHIFT).result.name == "SEED"
+def test_when_shift_cycles_drafter_to_prime():
+    assert State.from_name("DRAFTER").apply(Op.WHEN_SHIFT).result.name == "PRIME"
 
 
 def test_inv_rolls_back_sync_to_prime():

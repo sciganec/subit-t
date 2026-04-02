@@ -1,0 +1,27 @@
+{
+  "name": "SUBIT-T AI",
+  "short_name": "SUBIT-T",
+  "description": "Autonomous Routing Studio for visible AI state transitions, local Llama workflows, and theory-first demos.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#efe3d1",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

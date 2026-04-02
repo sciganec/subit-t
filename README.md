@@ -80,8 +80,64 @@ After editable install, the same commands are available through `subit`.
 - `subit_t/runtime/ollama.py`: local Ollama transport
 - `subit_t/runtime/web.py`: web-search and page-fetch helpers
 - `subit_t/runtime/chat.py`: interactive chat session loop
+- `webapp/`: React frontend for `SUBIT-T AI`, ready for GitHub Pages deployment
 
 This keeps the algebra and router core separate from assistant-style workflows.
+
+## SUBIT-T AI Web App
+
+The repository also includes a React app in `webapp/` that turns `SUBIT-T` into a browser-based assistant UI.
+
+Features:
+
+- chat interface with visible `current_state -> operator -> next_state`
+- bring-your-own API key
+- OpenAI-compatible chat completion endpoint
+- assistant modes: `general`, `review`, `research`, `incident`, `planner`, `coding`
+- local settings stored in browser local storage
+
+Run locally:
+
+```bash
+cd webapp
+npm install
+npm run dev
+```
+
+Build for production:
+
+```bash
+cd webapp
+npm install
+npm run build
+```
+
+Deploy:
+
+- GitHub Pages workflow: `.github/workflows/deploy-webapp.yml`
+- push changes under `webapp/` to `main`
+- enable Pages in repository settings if needed
+
+## Assistant Modes
+
+`subit-t` can also act as a local assistant runtime over Ollama.
+
+- `subit chat`: interactive multi-turn assistant loop
+- `subit ollama "...":` single-shot assistant response
+- `--assistant`: select a built-in assistant profile such as `general`, `review`, `research`, `incident`, `planner`, or `coding`
+
+Examples:
+
+```bash
+python -m subit_t.cli chat --assistant coding
+python -m subit_t.cli ollama "Review this rollout plan" --assistant review
+python -m subit_t.cli ollama "What is the latest Python release?" --assistant research --web --fetch-pages 2
+```
+
+Assistant profiles are layered on top of the routed state prompt, so the model gets both:
+
+- the `SUBIT-T` state/operator context
+- task-specific behavior guidance
 
 ## Evaluation
 
@@ -96,7 +152,10 @@ Run it with:
 ```bash
 python eval/runner.py
 python eval/runner.py --dataset eval/challenge.jsonl
+python eval/runner.py --model-assisted --encoder-model llama3.2
 ```
+
+The encoder also supports an optional hybrid path where local Ollama provides a structured routing hint. If the model hint is missing or malformed, `subit-t` falls back to deterministic heuristics.
 
 ## State Space
 

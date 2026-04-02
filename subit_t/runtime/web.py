@@ -8,6 +8,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 
+from subit_t import __version__
+
 
 AUTO_WEB_PATTERNS = [
     r"\bweather\b",
@@ -31,6 +33,8 @@ AUTO_WEB_PATTERNS = [
     r"\bwhat happened\b",
 ]
 
+USER_AGENT = f"subit-t/{__version__}"
+
 
 def strip_tags(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
@@ -50,7 +54,7 @@ def duckduckgo_search(query: str, limit: int = 5, timeout: int = 20) -> list[dic
     response = requests.post(
         "https://html.duckduckgo.com/html/",
         data={"q": query},
-        headers={"User-Agent": "subit-t/0.3.0"},
+        headers={"User-Agent": USER_AGENT},
         timeout=timeout,
     )
     response.raise_for_status()
@@ -99,7 +103,7 @@ def extract_page_text(html_text: str, max_chars: int = 1200) -> str:
 
 def fetch_page_summaries(results: list[dict], timeout: int = 15, max_pages: int = 3) -> list[dict]:
     pages = []
-    headers = {"User-Agent": "subit-t/0.3.0"}
+    headers = {"User-Agent": USER_AGENT}
     for item in results[:max_pages]:
         try:
             response = requests.get(item["url"], headers=headers, timeout=timeout)
