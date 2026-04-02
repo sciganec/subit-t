@@ -50,83 +50,16 @@ WHAT_DESCRIPTION = {
     "PRESERVE": "Fixes state without transformation. Memory, storage, observation.",
 }
 
-# Backward compatibility aliases
-WHERE = {
-    "EAST": 0b10,
-    "SOUTH": 0b11,
-    "WEST": 0b01,
-    "NORTH": 0b00,
-}
-WHERE_I = {v: k for k, v in WHERE.items()}
-WHERE_LABEL = {
-    "EAST": "expand",
-    "SOUTH": "transform",
-    "WEST": "reduce",
-    "NORTH": "preserve",
-}
-
-WHAT_TO_WHERE = {"EXPAND": "EAST", "TRANSFORM": "SOUTH", "REDUCE": "WEST", "PRESERVE": "NORTH"}
-WHERE_TO_WHAT = {"EAST": "EXPAND", "SOUTH": "TRANSFORM", "WEST": "REDUCE", "NORTH": "PRESERVE"}
-
-
-# WHEN - Phase of cognitive cycle
-
-WHEN = {
-    "INITIATE": 0b10,
-    "SUSTAIN": 0b11,
-    "INTEGRATE": 0b01,
-    "RELEASE": 0b00,
-}
-WHEN_I = {v: k for k, v in WHEN.items()}
-
-WHEN_LABEL = {
-    "INITIATE": "initiate",
-    "SUSTAIN": "sustain",
-    "INTEGRATE": "integrate",
-    "RELEASE": "release",
-}
-
-WHEN_DESCRIPTION = {
-    "INITIATE": "Opening a new cycle. First impulse, maximum uncertainty, fresh start.",
-    "SUSTAIN": "Maintaining active process. Peak activity, full capacity, flow state.",
-    "INTEGRATE": "Integrating results. Synthesis, closing, convergence of outputs.",
-    "RELEASE": "Completing the cycle. Idle, ready, latent potential for next cycle.",
-}
-
-# Backward compatibility aliases
-WHEN_OLD = {
-    "SPRING": 0b10,
-    "SUMMER": 0b11,
-    "AUTUMN": 0b01,
-    "WINTER": 0b00,
-}
-WHEN_OLD_I = {v: k for k, v in WHEN_OLD.items()}
-WHEN_OLD_LABEL = {
-    "SPRING": "initiate",
-    "SUMMER": "sustain",
-    "AUTUMN": "integrate",
-    "WINTER": "release",
-}
-
-WHEN_TO_OLD = {"INITIATE": "SPRING", "SUSTAIN": "SUMMER", "INTEGRATE": "AUTUMN", "RELEASE": "WINTER"}
-OLD_TO_WHEN = {"SPRING": "INITIATE", "SUMMER": "SUSTAIN", "AUTUMN": "INTEGRATE", "WINTER": "RELEASE"}
-
-
 def _make_bits(who: str, what: str, when: str) -> int:
     """
-    Build a 6-bit state integer.
-
-    Accepts both the current WHAT/WHEN names and the legacy WHERE/season names.
+    Build a 6-bit state integer from WHO, WHAT, WHEN labels.
     """
-    what_bits = WHAT.get(what) if what in WHAT else WHERE.get(what)
-    if what_bits is None:
-        raise KeyError(f"Unknown WHAT/WHERE value: '{what}'")
-
-    when_bits = WHEN.get(when) if when in WHEN else WHEN_OLD.get(when)
-    if when_bits is None:
+    if what not in WHAT:
+        raise KeyError(f"Unknown WHAT value: '{what}'")
+    if when not in WHEN:
         raise KeyError(f"Unknown WHEN value: '{when}'")
-
-    return (WHO[who] << 4) | (what_bits << 2) | when_bits
+    
+    return (WHO[who] << 4) | (WHAT[what] << 2) | WHEN[when]
 
 
 # Canon entries: (WHO, WHAT, WHEN, name)

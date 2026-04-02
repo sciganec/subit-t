@@ -107,10 +107,6 @@ class State:
         return WHAT_I[(self.bits >> 2) & 0b11]
 
     @property
-    def where(self) -> str:
-        return self.what
-
-    @property
     def when(self) -> str:
         return WHEN_I[self.bits & 0b11]
 
@@ -193,10 +189,6 @@ class State:
         clean = value.replace(".", "").replace(" ", "").replace("-", "")
         return cls(int(clean, 2))
 
-    def __xor__(self, other: "State") -> "State":
-        """XOR kept as a latent geometry tool for compatibility analysis."""
-        return State(self.bits ^ other.bits)
-
     @staticmethod
     def _shift(order: list[str], value: str, delta: int) -> str:
         index = order.index(value)
@@ -210,7 +202,6 @@ class State:
             "who": self.who,
             "what": self.what,
             "when": self.when,
-            "where": self.what,
             "who_label": WHO_LABEL[self.who],
             "what_label": WHAT_LABEL[self.what],
             "when_label": WHEN_LABEL[self.when],

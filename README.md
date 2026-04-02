@@ -194,10 +194,6 @@ router.stuck_detection()   # {"over_inv": False, "what_heavy": True, ...}
 router.idempotent_rate()   # 0.0
 ```
 
-## Compatibility
-
-The package still accepts old dimension names in `State.from_dims(...)` for compatibility, but the primary model is `WHO + WHAT + WHEN`.
-
 ## License
 
 MIT

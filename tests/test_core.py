@@ -15,8 +15,7 @@ def test_state_from_dims_accepts_new_names():
     assert State.from_dims("ME", "EXPAND", "INITIATE").name == "PRIME"
 
 
-def test_state_from_dims_accepts_legacy_names():
-    assert State.from_dims("ME", "EAST", "SPRING").name == "PRIME"
+
 
 
 def test_who_shift_cycles_driver_to_sync():

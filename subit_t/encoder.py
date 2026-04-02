@@ -310,10 +310,6 @@ class EncoderResult:
     model_reason: str | None
 
     @property
-    def where_dist(self) -> dict[str, float]:
-        return self.what_dist
-
-    @property
     def next_state(self) -> State:
         return self.target_state
 
@@ -336,7 +332,6 @@ class EncoderResult:
                 "who": self.who_dist,
                 "what": self.what_dist,
                 "when": self.when_dist,
-                "where": self.what_dist,
             },
             "state_distribution": self.state_distribution,
         }

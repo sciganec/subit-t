@@ -8,7 +8,7 @@ Quick start:
     router = Router()
 """
 
-from .canon import CANON, BY_NAME, WHO_LABEL, WHAT_LABEL, WHERE_LABEL, WHEN_LABEL
+from .canon import CANON, BY_NAME, WHO_LABEL, WHAT_LABEL, WHEN_LABEL
 from .core import (
     State,
     Op,
@@ -28,15 +28,8 @@ from .core import (
 )
 from .encoder import encode, EncoderResult
 from .router import Router
+from .kernel import Kernel, KernelSession
 from .injector import build_prompt, build_minimal_prompt
-from .guards import (
-    guard_driver_sync,
-    guard_executor_scan,
-    guard_council_prime,
-    guard_winter_collapse,
-    make_guard,
-    DEFAULT_GUARDS,
-)
 
 __version__ = "0.3.1"
 
@@ -59,18 +52,14 @@ __all__ = [
     "BY_NAME",
     "WHO_LABEL",
     "WHAT_LABEL",
-    "WHERE_LABEL",
     "WHEN_LABEL",
     "encode",
     "EncoderResult",
     "Router",
+    "Kernel",
+    "KernelSession",
     "build_prompt",
     "build_minimal_prompt",
-    "guard_driver_sync",
-    "guard_executor_scan",
-    "guard_council_prime",
-    "guard_winter_collapse",
-    "make_guard",
-    "DEFAULT_GUARDS",
+    "build_minimal_prompt",
     "validate_all_transitions",
 ]
