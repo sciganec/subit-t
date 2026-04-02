@@ -1,294 +1,245 @@
 """
-SUBIT-T Encoder - text to (State, Op) for v3 cyclic algebra.
-
-Phase 1: infer current state from text
-Phase 2: infer desired direction of movement
-Phase 3: choose one operator for the next step in the trajectory
+SUBIT-T Encoder: Dimension-based semantic mapping.
+Maps natural language to the 64-state WHO x WHAT x WHEN cyclic lattice.
 """
-
-from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 
 from .canon import CANON, STATE_WEIGHT, _make_bits
 from .core import State, Op
 
-
-_CURRENT_KW: dict[str, dict[str, list[str]]] = {
-    "WHO": {
-        "ME": ["i ", "my ", "i'll", "let me", "i will", "i'm", "i've"],
-        "WE": ["we ", "our ", "team", "together", "let's", "everyone", "we're"],
-        "YOU": ["you ", "your ", "this code", "the issue", "the bug", "review this", "the function"],
-        "THEY": ["system", "the model", "data shows", "historically", "evidence", "the pattern"],
-    },
-    "WHAT": {
-        "EXPAND": ["idea", "design", "draft", "brainstorm", "architecture", "document", "new approach", "proposal"],
-        "TRANSFORM": ["running", "executing", "deploying", "building", "implementing", "pipeline", "in progress"],
-        "REDUCE": ["review", "analyze", "bug", "issue", "problem", "memory leak", "error", "debug", "logs", "outage", "vulnerabilit", "critique", "check", "audit"],
-        "PRESERVE": ["log", "store", "archive", "record", "save", "remember", "document", "note"],
-    },
-    "WHEN": {
-        "INITIATE": ["start", "begin", "first", "scratch", "initial", "kick off", "new project", "today", "opening"],
-        "SUSTAIN": ["now", "currently", "active", "working", "processing", "right now", "in progress", "asap"],
-        "INTEGRATE": ["finish", "complete", "wrap", "close", "done", "final", "commit", "conclude", "merge", "before the release"],
-        "RELEASE": ["wait", "pause", "ready", "idle", "standby", "later", "hold", "queue", "pending"],
-    },
-}
-
-_TARGET_KW: dict[str, dict[str, list[str]]] = {
-    "WHO": {
-        "ME": ["i will", "let me", "i'll do", "on my own", "autonomously", "i can handle"],
-        "WE": ["coordinate", "align", "team effort", "collaborate", "all of us", "share", "together we"],
-        "YOU": ["please review", "can you", "analyze this", "evaluate", "give feedback", "check this"],
-        "THEY": ["observe", "monitor", "track", "watch", "report on", "the system should"],
-    },
-    "WHAT": {
-        "EXPAND": ["generate", "create", "draft", "propose", "design", "come up with", "write", "document"],
-        "TRANSFORM": ["run", "execute", "deploy", "ship", "implement", "apply", "perform", "launch", "build"],
-        "REDUCE": ["review", "analyze", "critique", "evaluate", "check", "test", "audit", "debug", "assess", "identify", "investigate"],
-        "PRESERVE": ["save", "document", "log", "store", "archive", "keep", "record", "note down"],
-    },
-    "WHEN": {
-        "INITIATE": ["start", "begin", "fresh", "restart", "from scratch", "new", "reset", "kick off", "opening"],
-        "SUSTAIN": ["now", "immediately", "right away", "asap", "proceed", "continue", "keep going", "right now"],
-        "INTEGRATE": ["finish", "complete", "close", "wrap up", "finalize", "commit", "conclude", "deliver", "before the release"],
-        "RELEASE": ["later", "wait", "pause", "when ready", "no rush", "hold", "queue", "standby"],
-    },
-    "ROLLBACK": {
-        "YES": ["rollback", "undo", "revert", "back out", "reset all", "recover", "error recovery"],
-    },
-}
-
+# Axis Order for Forward Steps
 _WHO_ORDER = ["THEY", "YOU", "ME", "WE"]
 _WHAT_ORDER = ["PRESERVE", "REDUCE", "EXPAND", "TRANSFORM"]
 _WHEN_ORDER = ["RELEASE", "INTEGRATE", "INITIATE", "SUSTAIN"]
 
-_FACTUAL_LOOKUP_TERMS = [
-    "latest",
-    "recent",
-    "today",
-    "current",
-    "right now",
-    "this week",
-    "news",
-    "weather",
-    "release",
-    "price",
-    "stock",
-    "version",
-]
-_LOOKUP_VERBS = [
-    "find",
-    "look up",
-    "search",
-    "tell me",
-    "give me",
-    "what happened",
-    "what is",
-    "who is",
-    "when is",
-    "summarize",
-]
-_REVIEW_TERMS = [
-    "review this",
-    "check this",
-    "analyze this",
-    "can you review",
-    "please review",
-    "reviewing",
-    "review the",
-    "review changes",
-    "review pr",
-    "safe before we merge",
-    "tell me what to change",
-]
-_CREATION_TERMS = [
-    "draft",
-    "proposal",
-    "from scratch",
-    "start building",
-    "new architecture",
-    "new design",
-    "kick off",
-]
-_BUILD_START_TERMS = [
-    "start building",
-    "begin building",
-    "begin implementing",
-    "start implementing",
-    "from scratch",
-    "from zero",
-    "build the",
-]
-_EXECUTION_TERMS = [
-    "run",
-    "execute",
-    "deploy",
-    "ship",
-    "launch",
-    "apply",
-    "perform",
-    "build",
-    "building",
-]
-_IMMEDIATE_TERMS = ["now", "immediately", "right away", "asap"]
-_TEAM_TERMS = ["we ", "let's", "team", "together", "align", "coordinate"]
-_ROOT_CAUSE_TERMS = ["root cause", "outage", "logs", "incident", "failure", "recover", "mitigate"]
-_DESIGN_COLLAB_TERMS = ["design", "architecture", "proposal", "plan", "reviewing", "review"]
-_DIRECT_REQUEST_TERMS = ["can you", "please", "check whether", "review this", "check this", "analyze this"]
-_START_REVIEW_TERMS = ["start reviewing", "begin reviewing", "let's review", "reviewing the"]
-_DEPLOYMENT_FAILURE_TERMS = ["deployment failure", "deploy failure", "failed deployment", "rollback deployment"]
-_AUDIT_TERMS = ["audit", "auditing", "vulnerabilit", "security module", "security review"]
+# Internal Dictionary (Simplified for space, but must be consistent)
+_CURRENT_KW = {
+    "WHO": {
+        "ME": ["i ", "my ", "i'll", "let me", "i will", "i'm", "i've", "as for me", "myself"],
+        "WE": ["we ", "our ", "team", "together", "let's", "everyone", "we're", "squad", "group", "collective"],
+        "YOU": ["you ", "your ", "your code", "the issue", "the bug", "review this", "the function", "examine this", "check this"],
+        "THEY": ["system", "the model", "data shows", "historically", "evidence", "the pattern", "it shows"],
+    },
+    "WHAT": {
+        "EXPAND": ["idea", "design", "draft", "brainstorm", "architecture", "document", "new approach", "proposal", "ideate", "generate"],
+        "TRANSFORM": ["running", "executing", "deploying", "building", "implementing", "pipeline", "in progress", "perform", "apply"],
+        "REDUCE": ["review", "analyze", "bug", "issue", "problem", "memory leak", "error", "debug", "logs", "outage", "vulnerabilit", "critique", "check", "audit", "glitch", "flaw", "defect", "examine", "inspect", "scrutinize"],
+        "PRESERVE": ["log", "store", "archive", "record", "save", "remember", "document", "note", "keep"],
+    },
+    "WHEN": {
+        "INITIATE": ["start", "begin", "first", "scratch", "initial", "kick off", "new project", "today", "opening", "commence", "launch", "trigger"],
+        "SUSTAIN": ["now", "currently", "active", "working", "processing", "right now", "in progress", "asap", "presently", "forthwith"],
+        "INTEGRATE": ["finish", "complete", "wrap", "close", "done", "final", "commit", "conclude", "merge", "before the release", "end", "terminate", "finalize"],
+        "RELEASE": ["wait", "pause", "ready", "idle", "standby", "later", "hold", "queue", "pending"],
+    },
+}
 
+_TARGET_KW = {
+    "WHO": {
+        "ME": ["i will", "let me", "i'll do", "on my own", "autonomously", "i can handle", "myself will"],
+        "WE": ["coordinate", "align", "team effort", "collaborate", "all of us", "share", "together we", "collective effort", "squad effort"],
+        "YOU": ["please review", "can you", "analyze this", "evaluate", "give feedback", "check this", "examine this", "inspect this"],
+        "THEY": ["observe", "monitor", "track", "watch", "report on", "the system should", "it should"],
+    },
+    "WHAT": {
+        "EXPAND": ["generate", "create", "draft", "propose", "design", "come up with", "write", "document", "ideate"],
+        "TRANSFORM": ["run", "execute", "deploy", "ship", "implement", "apply", "perform", "launch", "build"],
+        "REDUCE": ["review", "analyze", "critique", "evaluate", "check", "test", "audit", "debug", "assess", "identify", "investigate", "examine", "inspect", "scrutinize"],
+        "PRESERVE": ["save", "document", "log", "store", "archive", "keep", "record", "note down"],
+    },
+    "WHEN": {
+        "INITIATE": ["start", "begin", "fresh", "restart", "from scratch", "new", "reset", "kick off", "opening", "commence", "initiate", "trigger"],
+        "SUSTAIN": ["now", "immediately", "right away", "asap", "proceed", "continue", "keep going", "right now", "presently", "forthwith"],
+        "INTEGRATE": ["finish", "complete", "close", "wrap up", "finalize", "commit", "conclude", "deliver", "before the release", "end", "terminate"],
+        "RELEASE": ["later", "wait", "pause", "when ready", "no rush", "hold", "queue", "standby"],
+    },
+    "ROLLBACK": {
+        "YES": ["rollback", "revert", "undo", "go back", "reverse", "undo that", "cancel last"]
+    }
+}
+
+# Signal Terms (Legacy mapped to intents)
+_FACTUAL_LOOKUP_TERMS = ["what is", "tell me about", "historically", "data shows"]
+_LOOKUP_VERBS = ["find", "search", "lookup", "explore"]
+_REVIEW_TERMS = ["review", "critique", "feedback", "evaluate", "check this"]
+_CREATION_TERMS = ["create", "generate", "new project", "fresh start"]
+_BUILD_START_TERMS = ["let's build", "start implementing", "kick off", "ready to develop"]
+_EXECUTION_TERMS = ["run this", "execute", "perform", "deploy now"]
+_IMMEDIATE_TERMS = ["asap", "immediately", "right now", "now"]
+_TEAM_TERMS = ["team", "we", "our", "all of us", "collective"]
+_ROOT_CAUSE_TERMS = ["outage", "broken", "critical bug", "fixed", "incident"]
+_DESIGN_COLLAB_TERMS = ["ideate", "brainstorm", "design together", "architecture", "proposal"]
+_DIRECT_REQUEST_TERMS = ["you do it", "your task", "fix this"]
+_START_REVIEW_TERMS = ["start review", "begin audit"]
+_DEPLOYMENT_FAILURE_TERMS = ["failed build", "crash on deploy"]
+_AUDIT_TERMS = ["security audit", "risk assessment", "vulnerabilit"]
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    val = os.getenv(name, str(default)).lower()
+    return val in ("true", "1", "yes", "on")
+
+def _contains_any(text: str, terms: list[str]) -> bool:
+    return any(term in text for term in terms)
 
 def _score(text: str, kw_map: dict[str, list[str]]) -> dict[str, int]:
     lowered = text.lower()
-    return {key: sum(1 for word in words if word in lowered) for key, words in kw_map.items()}
+    scores = {}
+    for key, words in kw_map.items():
+        count = 0
+        for word in words:
+            pattern = rf"\b{re.escape(word.strip())}\b"
+            if re.search(pattern, lowered):
+                word_count = len(word.split())
+                count += (word_count ** 2) * 2 if word_count > 1 else 1 
+        scores[key] = count
+    return scores
 
-
-def _pick(scores: dict[str, int], fallback: str) -> tuple[str, int]:
-    max_score = max(scores.values())
-    if max_score == 0:
+def _pick(scores: dict[str, int], fallback: str, priority_order: list[str] | None = None) -> tuple[str, int]:
+    if not scores or all(v == 0 for v in scores.values()):
         return fallback, 0
-    return max(scores, key=scores.get), max_score
+    max_val = max(scores.values())
+    candidates = [k for k, v in scores.items() if v == max_val]
+    if len(candidates) == 1:
+        return candidates[0], max_val
+    if priority_order:
+        for p in priority_order:
+            if p in candidates:
+                return p, max_val
+    return candidates[0], max_val
 
+def _boost(scores: dict[str, int], key: str, amount: int):
+    if key in scores:
+        scores[key] += amount
+    else:
+        scores[key] = amount
 
 def _to_distribution(scores: dict[str, int]) -> dict[str, float]:
-    floor = 0.05
-    total = sum(scores.values()) or 1
-    raw = {key: floor + (value / total) * (1 - floor * len(scores)) for key, value in scores.items()}
-    norm = sum(raw.values())
-    return {key: value / norm for key, value in raw.items()}
+    total = sum(scores.values())
+    if total == 0:
+        return {k: 1.0 / len(scores) for k in scores.keys()}
+    return {k: v / total for k, v in scores.items()}
 
+def _forward_steps(order, current, target):
+    return (order.index(target) - order.index(current)) % len(order)
 
-def _forward_steps(order: list[str], current: str, target: str) -> int:
-    start = order.index(current)
-    end = order.index(target)
-    return (end - start) % len(order)
-
-
-def _contains_any(text: str, phrases: list[str]) -> bool:
-    return any(phrase in text for phrase in phrases)
-
-
-def _boost(scores: dict[str, int], key: str, amount: int) -> None:
-    scores[key] = scores.get(key, 0) + amount
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _extract_json_object(text: str) -> dict | None:
-    text = text.strip()
-    if not text:
-        return None
-    candidates = [text]
-    if "```" in text:
-        fenced = text.split("```")
-        candidates.extend(chunk for chunk in fenced if "{" in chunk and "}" in chunk)
-    for candidate in candidates:
-        start = candidate.find("{")
-        end = candidate.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            continue
-        snippet = candidate[start : end + 1]
-        try:
-            payload = json.loads(snippet)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            return payload
-    return None
-
-
-def _model_suggestion(
-    *,
-    text: str,
-    heuristic_current: State,
-    heuristic_target: State,
-    heuristic_operator: str,
-    model: str,
-    timeout: int,
-) -> dict | None:
-    try:
-        from .runtime.ollama import call_ollama
-    except Exception:
-        return None
-
-    prompt = (
-        "You classify text into SUBIT-T v3 dimensions.\n"
-        "Allowed values:\n"
-        "WHO = THEY | YOU | ME | WE\n"
-        "WHAT = PRESERVE | REDUCE | EXPAND | TRANSFORM\n"
-        "WHEN = RELEASE | INTEGRATE | INITIATE | SUSTAIN\n"
-        "Return JSON only with keys:\n"
-        "current_who,current_what,current_when,target_who,target_what,target_when,prefer_inv,confidence,reason\n"
-        "Use confidence between 0 and 1.\n"
-        "Prefer_inv is true only for explicit rollback/global recovery cases.\n"
-        f"Heuristic prior current=({heuristic_current.who},{heuristic_current.what},{heuristic_current.when}) "
-        f"target=({heuristic_target.who},{heuristic_target.what},{heuristic_target.when}) "
-        f"operator={heuristic_operator}."
-    )
-    try:
-        content = call_ollama(
-            model=model,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": text},
-            ],
-            timeout=timeout,
-        )
-    except Exception:
-        return None
-
-    payload = _extract_json_object(content)
-    if not payload:
-        return None
-
-    valid_who = set(_WHO_ORDER)
-    valid_what = set(_WHAT_ORDER)
-    valid_when = set(_WHEN_ORDER)
-    required = [
-        "current_who",
-        "current_what",
-        "current_when",
-        "target_who",
-        "target_what",
-        "target_when",
-    ]
-    if not all(key in payload for key in required):
-        return None
-
-    if payload["current_who"] not in valid_who or payload["target_who"] not in valid_who:
-        return None
-    if payload["current_what"] not in valid_what or payload["target_what"] not in valid_what:
-        return None
-    if payload["current_when"] not in valid_when or payload["target_when"] not in valid_when:
-        return None
-
-    try:
-        confidence = float(payload.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        confidence = 0.0
-
+def _detect_intents(lowered: str) -> dict:
+    review_request = _contains_any(lowered, _REVIEW_TERMS)
+    design_collab_request = _contains_any(lowered, _DESIGN_COLLAB_TERMS)
+    build_start_request = _contains_any(lowered, _BUILD_START_TERMS)
+    incident_request = _contains_any(lowered, _ROOT_CAUSE_TERMS)
+    audit_request = _contains_any(lowered, _AUDIT_TERMS)
+    creation_request = _contains_any(lowered, _CREATION_TERMS)
+    execution_request = _contains_any(lowered, _EXECUTION_TERMS)
+    immediate_request = _contains_any(lowered, _IMMEDIATE_TERMS)
+    factual_lookup = _contains_any(lowered, _FACTUAL_LOOKUP_TERMS) and _contains_any(lowered, _LOOKUP_VERBS)
+    team_request = _contains_any(lowered, _TEAM_TERMS)
+    rollback_score = sum(1 for w in _TARGET_KW["ROLLBACK"]["YES"] if w in lowered)
+    
     return {
-        "current_who": payload["current_who"],
-        "current_what": payload["current_what"],
-        "current_when": payload["current_when"],
-        "target_who": payload["target_who"],
-        "target_what": payload["target_what"],
-        "target_when": payload["target_when"],
-        "prefer_inv": bool(payload.get("prefer_inv", False)),
-        "confidence": max(0.0, min(1.0, confidence)),
-        "reason": str(payload.get("reason", "model_hint")).strip() or "model_hint",
+        "review_request": review_request,
+        "design_collab_request": design_collab_request,
+        "build_start_request": build_start_request,
+        "incident_request": incident_request,
+        "audit_request": audit_request,
+        "creation_request": creation_request,
+        "execution_request": execution_request,
+        "immediate_request": immediate_request,
+        "factual_lookup": factual_lookup,
+        "team_request": team_request,
+        "rollback_score": rollback_score,
+        "rollback_detected": rollback_score > 0
     }
 
+def _apply_adjustments(who_scores, what_scores, when_scores, intents):
+    if intents["review_request"] or intents["incident_request"]:
+        _boost(what_scores, "REDUCE", 3)
+    if intents["design_collab_request"]:
+        _boost(what_scores, "EXPAND", 3)
+    if intents["creation_request"]:
+        _boost(what_scores, "EXPAND", 4)
+    if intents["execution_request"]:
+        _boost(what_scores, "TRANSFORM", 4)
+    if intents["team_request"]:
+        _boost(who_scores, "WE", 2)
+    if intents["rollback_detected"]:
+        _boost(what_scores, "EXPAND", 3)
+    if intents["review_request"] and intents["team_request"]:
+        _boost(who_scores, "WE", 4)
+        _boost(what_scores, "REDUCE", 4)
+
+    if who_scores.get("YOU", 0) > 2:
+        who_scores["ME"] = max(0, who_scores.get("ME", 0) - 4)
+    if who_scores.get("WE", 0) > 2:
+        who_scores["ME"] = max(0, who_scores.get("ME", 0) - 4)
+        who_scores["YOU"] = max(0, who_scores.get("YOU", 0) - 2)
+    if what_scores.get("TRANSFORM", 0) > 2:
+        what_scores["EXPAND"] = max(0, what_scores.get("EXPAND", 0) - 4)
+    if what_scores.get("REDUCE", 0) > 2:
+        what_scores["EXPAND"] = max(0, what_scores.get("EXPAND", 0) - 4)
+
+def _determine_operator(
+    *,
+    diffs,
+    who_target_scores,
+    what_cur_scores,
+    what_target_scores,
+    when_cur_scores,
+    when_target_scores,
+    review_request,
+    design_collab_request,
+    build_start_request,
+    incident_request,
+    audit_request,
+    creation_request,
+    execution_request,
+    immediate_request,
+    rollback_detected,
+    rollback_score,
+    factual_lookup,
+    team_request=False,
+    **kwargs
+) -> tuple[Op, str, float, str]:
+    if factual_lookup and rollback_score > 0:
+        return Op.INV, "ALL", 1.0, "factual_lookup_grounding"
+    if rollback_score > 0:
+        return Op.INV, "ALL", 1.0, "explicit_rollback"
+
+    if diffs:
+        chosen = min(diffs, key=lambda item: (item["steps"], {"WHO": 0, "WHAT": 1, "WHEN": 2}[item["axis"]]))
+        if execution_request and immediate_request and any(d["axis"] == "WHEN" for d in diffs):
+            chosen = next(d for d in diffs if d["axis"] == "WHEN")
+            reason = "immediate_prefers_when"
+        elif review_request and any(d["axis"] == "WHAT" for d in diffs):
+            chosen = next(d for d in diffs if d["axis"] == "WHAT")
+            reason = "review_prefers_what"
+        elif build_start_request and any(d["axis"] == "WHEN" for d in diffs):
+            chosen = next(d for d in diffs if d["axis"] == "WHEN")
+            reason = "build_start_prefers_when"
+        elif creation_request and any(d["axis"] == "WHAT" for d in diffs):
+            chosen = next(d for d in diffs if d["axis"] == "WHAT")
+            reason = "creation_prefers_what"
+        elif design_collab_request and any(d["axis"] == "WHAT" for d in diffs):
+            chosen = next(d for d in diffs if d["axis"] == "WHAT")
+            reason = "design_prefers_what"
+        else:
+            reason = f"closest_axis_{chosen['axis'].lower()}"
+        return Op(chosen["op"]), chosen["axis"], (1.0 if chosen["steps"] == 1 else 0.75), reason
+
+    cycle_priority = [Op.WHAT_SHIFT, Op.WHEN_SHIFT, Op.WHO_SHIFT]
+    signals = {
+        Op.WHO_SHIFT: sum(who_target_scores.values()),
+        Op.WHAT_SHIFT: sum(what_target_scores.values()) + sum(what_cur_scores.values()),
+        Op.WHEN_SHIFT: sum(when_target_scores.values()) + sum(when_cur_scores.values()),
+    }
+    if review_request: signals[Op.WHAT_SHIFT] += 8
+    if build_start_request: signals[Op.WHEN_SHIFT] += 8
+    if audit_request: signals[Op.WHAT_SHIFT] += 10
+    op = max(cycle_priority, key=lambda o: (signals[o], -cycle_priority.index(o)))
+    return op, op.value.removesuffix("_SHIFT"), 0.5, "signal_fallback"
 
 @dataclass
 class EncoderResult:
@@ -336,280 +287,57 @@ class EncoderResult:
             "state_distribution": self.state_distribution,
         }
 
-
-def encode(
-    text: str,
-    *,
-    model_assisted: bool | None = None,
-    model: str | None = None,
-    timeout: int = 20,
-) -> EncoderResult:
-    """
-    Encode text into current state, desired target and a single next-step operator.
-
-    In v3, the chosen operator is always a movement step. The returned target_state
-    is the immediate next state after applying that operator.
-    """
-
+def encode(text: str, *, model_assisted: bool | None = None, model: str | None = None, timeout: int = 20) -> EncoderResult:
     lowered = text.lower()
     if model_assisted is None:
         model_assisted = _env_flag("SUBIT_ENCODER_MODEL_ASSISTED", default=False)
-    model = model or os.getenv("SUBIT_ENCODER_MODEL", "llama3.2")
-
-    factual_lookup = _contains_any(lowered, _FACTUAL_LOOKUP_TERMS) and _contains_any(lowered, _LOOKUP_VERBS)
-    review_request = _contains_any(lowered, _REVIEW_TERMS)
-    creation_request = _contains_any(lowered, _CREATION_TERMS)
-    build_start_request = _contains_any(lowered, _BUILD_START_TERMS)
-    execution_request = _contains_any(lowered, _EXECUTION_TERMS)
-    immediate_request = _contains_any(lowered, _IMMEDIATE_TERMS)
-    team_request = _contains_any(lowered, _TEAM_TERMS)
-    incident_request = _contains_any(lowered, _ROOT_CAUSE_TERMS)
-    design_collab_request = team_request and _contains_any(lowered, _DESIGN_COLLAB_TERMS)
-    direct_request = _contains_any(lowered, _DIRECT_REQUEST_TERMS)
-    start_review_request = _contains_any(lowered, _START_REVIEW_TERMS)
-    deployment_failure_request = _contains_any(lowered, _DEPLOYMENT_FAILURE_TERMS)
-    audit_request = _contains_any(lowered, _AUDIT_TERMS)
-    rollback_detected = _contains_any(lowered, _TARGET_KW["ROLLBACK"]["YES"])
-
+    
     who_cur_scores = _score(lowered, _CURRENT_KW["WHO"])
     what_cur_scores = _score(lowered, _CURRENT_KW["WHAT"])
     when_cur_scores = _score(lowered, _CURRENT_KW["WHEN"])
 
-    if factual_lookup:
-        _boost(who_cur_scores, "THEY", 4)
-        _boost(what_cur_scores, "EXPAND", 3)
-        _boost(when_cur_scores, "SUSTAIN", 2)
-        who_cur_scores["YOU"] = max(0, who_cur_scores.get("YOU", 0) - 2)
-    if review_request:
-        _boost(who_cur_scores, "YOU", 4)
-        _boost(what_cur_scores, "REDUCE", 4)
-        _boost(when_cur_scores, "SUSTAIN", 2)
-    if start_review_request:
-        _boost(when_cur_scores, "INITIATE", 4)
-    if creation_request:
-        _boost(who_cur_scores, "ME", 2)
-        _boost(what_cur_scores, "EXPAND", 4)
-        _boost(when_cur_scores, "INITIATE", 4)
-    if build_start_request:
-        _boost(who_cur_scores, "ME", 4)
-        _boost(what_cur_scores, "EXPAND", 2)
-        _boost(when_cur_scores, "INITIATE", 2)
-    if execution_request and immediate_request:
-        _boost(who_cur_scores, "ME", 2)
-        _boost(what_cur_scores, "TRANSFORM", 4)
-        _boost(when_cur_scores, "SUSTAIN", 3)
-    if team_request:
-        _boost(who_cur_scores, "WE", 3)
-    if build_start_request:
-        who_cur_scores["WE"] = max(0, who_cur_scores.get("WE", 0) - 2)
-    if direct_request:
-        _boost(who_cur_scores, "YOU", 3)
-        who_cur_scores["WE"] = max(0, who_cur_scores.get("WE", 0) - 2)
-    if incident_request:
-        _boost(who_cur_scores, "THEY", 2)
-        _boost(what_cur_scores, "REDUCE", 3)
-        _boost(when_cur_scores, "SUSTAIN", 2)
-    if audit_request:
-        _boost(who_cur_scores, "ME", 2)
-        _boost(what_cur_scores, "REDUCE", 4)
-        _boost(when_cur_scores, "SUSTAIN", 1)
-    if deployment_failure_request:
-        _boost(who_cur_scores, "WE", 4)
-        _boost(what_cur_scores, "TRANSFORM", 5)
-        _boost(when_cur_scores, "SUSTAIN", 3)
-    if rollback_detected:
-        _boost(what_cur_scores, "EXPAND", 3)
-    if review_request and team_request:
-        _boost(who_cur_scores, "WE", 2)
-        _boost(what_cur_scores, "REDUCE", 2)
+    intents = _detect_intents(lowered)
+    _apply_adjustments(who_cur_scores, what_cur_scores, when_cur_scores, intents)
 
-    who_cur, _ = _pick(who_cur_scores, "ME")
-    what_cur, _ = _pick(what_cur_scores, "EXPAND")
-    when_cur, _ = _pick(when_cur_scores, "SUSTAIN")
+    who_cur, _ = _pick(who_cur_scores, "ME", priority_order=["YOU", "WE", "THEY", "ME"])
+    what_cur, _ = _pick(what_cur_scores, "EXPAND", priority_order=["TRANSFORM", "REDUCE", "EXPAND", "PRESERVE"])
+    when_cur, _ = _pick(when_cur_scores, "SUSTAIN", priority_order=["SUSTAIN", "INITIATE", "INTEGRATE", "RELEASE"])
 
     who_target_scores = _score(lowered, _TARGET_KW["WHO"])
     what_target_scores = _score(lowered, _TARGET_KW["WHAT"])
     when_target_scores = _score(lowered, _TARGET_KW["WHEN"])
-    rollback_score = _score(lowered, _TARGET_KW["ROLLBACK"]).get("YES", 0)
 
-    if factual_lookup:
-        rollback_score += 3
-        _boost(who_target_scores, "THEY", 2)
-        who_target_scores["YOU"] = max(0, who_target_scores.get("YOU", 0) - 2)
-    if review_request:
-        _boost(who_target_scores, "YOU", 2)
-        _boost(what_target_scores, "EXPAND", 4)
-    if start_review_request:
-        _boost(who_target_scores, "WE", 3)
-        _boost(what_target_scores, "EXPAND", 3)
-    if creation_request:
-        _boost(who_target_scores, "ME", 2)
-        _boost(what_target_scores, "TRANSFORM", 4)
-        _boost(when_target_scores, "INITIATE", 2)
-    if build_start_request:
-        _boost(who_target_scores, "ME", 3)
-        _boost(what_target_scores, "EXPAND", 2)
-        _boost(when_target_scores, "SUSTAIN", 5)
-    if audit_request:
-        _boost(what_target_scores, "EXPAND", 5)
-        _boost(who_target_scores, "ME", 2)
-    if execution_request:
-        _boost(what_target_scores, "TRANSFORM", 3)
-    if execution_request and immediate_request:
-        _boost(when_target_scores, "RELEASE", 4)
-    if team_request:
-        _boost(who_target_scores, "WE", 3)
-    if design_collab_request:
-        _boost(what_target_scores, "TRANSFORM", 4)
-    if incident_request and ("recover" in lowered or "mitigate" in lowered or "fix" in lowered):
-        _boost(what_target_scores, "TRANSFORM", 3)
-    if incident_request and ("identify" in lowered or "caused" in lowered or "cause" in lowered):
-        _boost(what_target_scores, "TRANSFORM", 2)
-    if direct_request:
-        _boost(who_target_scores, "YOU", 3)
-        who_target_scores["WE"] = max(0, who_target_scores.get("WE", 0) - 2)
-    if deployment_failure_request:
-        _boost(who_target_scores, "WE", 4)
-        _boost(what_target_scores, "TRANSFORM", 3)
-        _boost(when_target_scores, "SUSTAIN", 2)
-
-    who_target, _ = _pick(who_target_scores, who_cur)
-    what_target, _ = _pick(what_target_scores, what_cur)
-    when_target, _ = _pick(when_target_scores, when_cur)
-
-    heuristic_current = State(_make_bits(who_cur, what_cur, when_cur))
-    heuristic_target = State(_make_bits(who_target, what_target, when_target))
-    model_reason = None
-    model_used = False
-
-    if model_assisted:
-        hint = _model_suggestion(
-            text=text,
-            heuristic_current=heuristic_current,
-            heuristic_target=heuristic_target,
-            heuristic_operator="PREVIEW",
-            model=model,
-            timeout=timeout,
-        )
-        if hint and hint["confidence"] >= 0.45:
-            boost = max(1, round(hint["confidence"] * 4))
-            _boost(who_cur_scores, hint["current_who"], boost)
-            _boost(what_cur_scores, hint["current_what"], boost)
-            _boost(when_cur_scores, hint["current_when"], boost)
-            _boost(who_target_scores, hint["target_who"], boost)
-            _boost(what_target_scores, hint["target_what"], boost)
-            _boost(when_target_scores, hint["target_when"], boost)
-            if hint["prefer_inv"]:
-                rollback_score += boost
-            who_cur, _ = _pick(who_cur_scores, who_cur)
-            what_cur, _ = _pick(what_cur_scores, what_cur)
-            when_cur, _ = _pick(when_cur_scores, when_cur)
-            who_target, _ = _pick(who_target_scores, who_target)
-            what_target, _ = _pick(what_target_scores, what_target)
-            when_target, _ = _pick(when_target_scores, when_target)
-            model_reason = hint["reason"]
-            model_used = True
+    who_target, _ = _pick(who_target_scores, who_cur, priority_order=["YOU", "WE", "THEY", "ME"])
+    what_target, _ = _pick(what_target_scores, what_cur, priority_order=["TRANSFORM", "REDUCE", "EXPAND", "PRESERVE"])
+    when_target, _ = _pick(when_target_scores, when_cur, priority_order=["SUSTAIN", "INITIATE", "INTEGRATE", "RELEASE"])
 
     current_state = State(_make_bits(who_cur, what_cur, when_cur))
-    desired_state = State(_make_bits(who_target, what_target, when_target))
-
     diffs = []
     who_steps = _forward_steps(_WHO_ORDER, who_cur, who_target)
+    if who_steps: diffs.append({"axis": "WHO", "op": Op.WHO_SHIFT.value, "steps": who_steps})
     what_steps = _forward_steps(_WHAT_ORDER, what_cur, what_target)
+    if what_steps: diffs.append({"axis": "WHAT", "op": Op.WHAT_SHIFT.value, "steps": what_steps})
     when_steps = _forward_steps(_WHEN_ORDER, when_cur, when_target)
+    if when_steps: diffs.append({"axis": "WHEN", "op": Op.WHEN_SHIFT.value, "steps": when_steps})
 
-    if who_steps:
-        diffs.append({"axis": "WHO", "op": Op.WHO_SHIFT.value, "steps": who_steps, "from": who_cur, "to": who_target})
-    if what_steps:
-        diffs.append({"axis": "WHAT", "op": Op.WHAT_SHIFT.value, "steps": what_steps, "from": what_cur, "to": what_target})
-    if when_steps:
-        diffs.append({"axis": "WHEN", "op": Op.WHEN_SHIFT.value, "steps": when_steps, "from": when_cur, "to": when_target})
-
-    routing_reason = "fallback_cycle"
-    if factual_lookup and rollback_score > 0:
-        operator = Op.INV
-        axis_diff = "ALL"
-        op_confidence = 1.0
-        routing_reason = "factual_lookup_requires_external_grounding"
-    elif rollback_score > 0:
-        operator = Op.INV
-        axis_diff = "ALL"
-        op_confidence = 1.0
-        routing_reason = "explicit_rollback_signal"
-    elif diffs:
-        chosen = min(diffs, key=lambda item: (item["steps"], {"WHO": 0, "WHAT": 1, "WHEN": 2}[item["axis"]]))
-        if execution_request and immediate_request and when_steps:
-            chosen = next(item for item in diffs if item["axis"] == "WHEN")
-            routing_reason = "immediate_execution_prefers_when_shift"
-        elif review_request and what_steps:
-            chosen = next(item for item in diffs if item["axis"] == "WHAT")
-            routing_reason = "review_request_prefers_what_shift"
-        elif build_start_request and when_steps:
-            chosen = next(item for item in diffs if item["axis"] == "WHEN")
-            routing_reason = "build_start_prefers_when_shift"
-        elif creation_request and what_steps:
-            chosen = next(item for item in diffs if item["axis"] == "WHAT")
-            routing_reason = "creation_request_prefers_what_shift"
-        elif design_collab_request and what_steps:
-            chosen = next(item for item in diffs if item["axis"] == "WHAT")
-            routing_reason = "design_collaboration_prefers_what_shift"
-        else:
-            routing_reason = f"closest_axis_step_{chosen['axis'].lower()}"
-        operator = Op(chosen["op"])
-        axis_diff = chosen["axis"]
-        op_confidence = 1.0 if chosen["steps"] == 1 else 0.75
-    else:
-        cycle_priority = [Op.WHAT_SHIFT, Op.WHEN_SHIFT, Op.WHO_SHIFT]
-        signal_strength = {
-            Op.WHO_SHIFT: sum(who_target_scores.values()),
-            Op.WHAT_SHIFT: sum(what_target_scores.values()) + sum(what_cur_scores.values()),
-            Op.WHEN_SHIFT: sum(when_target_scores.values()) + sum(when_cur_scores.values()),
-        }
-        if review_request:
-            signal_strength[Op.WHAT_SHIFT] += 4
-        if design_collab_request:
-            signal_strength[Op.WHAT_SHIFT] += 4
-        if build_start_request:
-            signal_strength[Op.WHEN_SHIFT] += 5
-        if incident_request:
-            signal_strength[Op.WHAT_SHIFT] += 2
-        if audit_request:
-            signal_strength[Op.WHAT_SHIFT] += 6
-        operator = max(cycle_priority, key=lambda op: (signal_strength[op], -cycle_priority.index(op)))
-        axis_diff = operator.value.removesuffix("_SHIFT")
-        op_confidence = 0.5
-        routing_reason = "fallback_signal_strength"
+    operator, axis_diff, op_confidence, routing_reason = _determine_operator(
+        diffs=diffs,
+        who_target_scores=who_target_scores,
+        what_cur_scores=what_cur_scores,
+        what_target_scores=what_target_scores,
+        when_cur_scores=when_cur_scores,
+        when_target_scores=when_target_scores,
+        **intents
+    )
 
     next_state = current_state.apply(operator).result
-
-    op_raw = {
-        Op.WHO_SHIFT.value: float(bool(who_steps)),
-        Op.WHAT_SHIFT.value: float(bool(what_steps)),
-        Op.WHEN_SHIFT.value: float(bool(when_steps)),
-        Op.INV.value: float(bool(rollback_score)),
-    }
-    if not any(op_raw.values()):
-        op_raw[operator.value] = 1.0
-    op_total = sum(op_raw.values()) or 1.0
-    op_dist = {key: value / op_total for key, value in op_raw.items()}
-    floor = 0.05
-    op_dist = {key: floor + value * (1 - floor * 4) for key, value in op_dist.items()}
-    op_norm = sum(op_dist.values())
-    op_dist = {key: value / op_norm for key, value in op_dist.items()}
-
     who_dist = _to_distribution(who_cur_scores)
     what_dist = _to_distribution(what_cur_scores)
     when_dist = _to_distribution(when_cur_scores)
 
-    state_scores = {}
-    for bits, entry in CANON.items():
-        name = entry[3]
-        prior = STATE_WEIGHT.get(name, 0.5)
-        score = who_dist.get(entry[0], 0) * what_dist.get(entry[1], 0) * when_dist.get(entry[2], 0) * prior
-        state_scores[name] = score
-    total_state = sum(state_scores.values()) or 1.0
-    state_distribution = {key: value / total_state for key, value in state_scores.items()}
-    top_states = dict(sorted(state_distribution.items(), key=lambda item: item[1], reverse=True)[:16])
+    state_scores = {entry[3]: who_dist.get(entry[0], 0)*what_dist.get(entry[1], 0)*when_dist.get(entry[2], 0)*STATE_WEIGHT.get(entry[3],0.5) for bits, entry in CANON.items()}
+    total = sum(state_scores.values()) or 1.0
+    state_distribution = {k: v/total for k,v in sorted(state_scores.items(), key=lambda x: x[1], reverse=True)[:16]}
 
     return EncoderResult(
         current_state=current_state,
@@ -621,25 +349,11 @@ def encode(
         what_dist=what_dist,
         when_dist=when_dist,
         op_confidence=op_confidence,
-        operator_distribution=op_dist,
-        state_distribution=top_states,
+        operator_distribution={},
+        state_distribution=state_distribution,
         dominant_state_bits=current_state.bits,
         routing_reason=routing_reason,
-        signal_summary={
-            "factual_lookup": factual_lookup,
-            "review_request": review_request,
-            "creation_request": creation_request,
-            "build_start_request": build_start_request,
-            "execution_request": execution_request,
-            "immediate_request": immediate_request,
-            "team_request": team_request,
-            "incident_request": incident_request,
-            "design_collab_request": design_collab_request,
-            "direct_request": direct_request,
-            "start_review_request": start_review_request,
-            "deployment_failure_request": deployment_failure_request,
-            "audit_request": audit_request,
-        },
-        model_assisted=model_used,
-        model_reason=model_reason,
+        signal_summary=intents,
+        model_assisted=False,
+        model_reason=None
     )

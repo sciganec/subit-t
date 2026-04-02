@@ -50,6 +50,31 @@ WHAT_DESCRIPTION = {
     "PRESERVE": "Fixes state without transformation. Memory, storage, observation.",
 }
 
+# WHEN - Phase of cognitive cycle
+
+WHEN = {
+    "INITIATE": 0b10,
+    "SUSTAIN": 0b11,
+    "INTEGRATE": 0b01,
+    "RELEASE": 0b00,
+}
+WHEN_I = {v: k for k, v in WHEN.items()}
+
+WHEN_LABEL = {
+    "INITIATE": "initiate",
+    "SUSTAIN": "sustain",
+    "INTEGRATE": "integrate",
+    "RELEASE": "release",
+}
+
+WHEN_DESCRIPTION = {
+    "INITIATE": "Opening a new cycle. First impulse, maximum uncertainty, fresh start.",
+    "SUSTAIN": "Maintaining active process. Peak activity, full capacity, flow state.",
+    "INTEGRATE": "Integrating results. Synthesis, closing, convergence of outputs.",
+    "RELEASE": "Completing the cycle. Idle, ready, latent potential for next cycle.",
+}
+
+
 def _make_bits(who: str, what: str, when: str) -> int:
     """
     Build a 6-bit state integer from WHO, WHAT, WHEN labels.

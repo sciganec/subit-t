@@ -1,4 +1,7 @@
 # SUBIT-T
+### v0.4.0: The Leibniz Milestone (Structural Monism)
+
+[**Read the v0.4.0 Leibniz Tutorial & Manifesto**](file:///c:/Users/sciga/subit-t/docs/LEIBNIZ_RELEASE.md) — *Exploring the history of computation, Monadology, and the 64-state cognitive lattice.*
 
 Archetypal routing layer for multi-agent AI systems.
 
@@ -143,9 +146,10 @@ Assistant profiles are layered on top of the routed state prompt, so the model g
 
 The repository now includes a lightweight evaluation scaffold:
 
-- `eval/gold.jsonl`: seed gold examples
-- `eval/challenge.jsonl`: harder ambiguous prompts
-- `eval/runner.py`: encoder evaluation runner
+- `eval/gold.jsonl`: original seed gold examples (hand-crafted)
+- `eval/v7_sample.jsonl`: high-precision (1,000 cases) deterministic parity suite (99%+ accuracy)
+- `eval/challenge.jsonl`: harder ambiguous prompts for model-assisted testing
+- `eval/runner.py`: multi-process encoder evaluation runner
 
 Run it with:
 

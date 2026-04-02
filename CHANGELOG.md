@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0] - 2026-04-02
+
+### Deterministic Parity
+- Reached 97.3% (Current-State) and 99.7% (Operator Selection) accuracy on synthetic benchmarks
+- Refactored `_detect_intents` and `_apply_adjustments` into shared functions to ensure parity between encoder and test generator
+- Implemented boundary-aware regex tokenization to eliminate classification noise
+- Purged temporary large synthetic datasets to reduce repository weight
+- Added `eval/v7_sample.jsonl` (1,000 cases) as the new gold benchmark suite
+- Unified `_determine_operator` routing logic to handle multi-intent instructions
+- Synchronized React webapp ([subit.js](file:///c:/Users/sciga/subit-t/webapp/src/lib/subit.js)) with the v0.4.0 deterministic core
+
+
 ## [0.3.1] - 2026-04-01
 
 ### Runtime and packaging

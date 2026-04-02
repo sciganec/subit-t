@@ -183,6 +183,109 @@ const EXAMPLES = [
   },
 ];
 
+const CURRENT_KW = {
+  WHO: {
+    ME: ["i ", "my ", "i'll", "let me", "i will", "i'm", "i've", "as for me", "myself"],
+    WE: ["we ", "our ", "team", "together", "let's", "everyone", "we're", "squad", "group", "collective"],
+    YOU: ["you ", "your ", "your code", "the issue", "the bug", "review this", "the function", "examine this", "check this"],
+    THEY: ["system", "the model", "data shows", "historically", "evidence", "the pattern", "it shows"],
+  },
+  WHAT: {
+    EXPAND: ["idea", "design", "draft", "brainstorm", "architecture", "document", "new approach", "proposal", "ideate", "generate"],
+    TRANSFORM: ["running", "executing", "deploying", "building", "implementing", "pipeline", "in progress", "perform", "apply"],
+    REDUCE: ["review", "analyze", "bug", "issue", "problem", "memory leak", "error", "debug", "logs", "outage", "vulnerabilit", "critique", "check", "audit", "glitch", "flaw", "defect", "examine", "inspect", "scrutinize"],
+    PRESERVE: ["log", "store", "archive", "record", "save", "remember", "document", "note", "keep"],
+  },
+  WHEN: {
+    INITIATE: ["start", "begin", "first", "scratch", "initial", "kick off", "new project", "today", "opening", "commence", "launch", "trigger"],
+    SUSTAIN: ["now", "currently", "active", "working", "processing", "right now", "in progress", "asap", "presently", "forthwith"],
+    INTEGRATE: ["finish", "complete", "wrap", "close", "done", "final", "commit", "conclude", "merge", "before the release", "end", "terminate", "finalize"],
+    RELEASE: ["wait", "pause", "ready", "idle", "standby", "later", "hold", "queue", "pending"],
+  },
+};
+
+const TARGET_KW = {
+  WHO: {
+    ME: ["i will", "let me", "i'll do", "on my own", "autonomously", "i can handle", "myself will"],
+    WE: ["coordinate", "align", "team effort", "collaborate", "all of us", "share", "together we", "collective effort", "squad effort"],
+    YOU: ["please review", "can you", "analyze this", "evaluate", "give feedback", "check this", "examine this", "inspect this"],
+    THEY: ["observe", "monitor", "track", "watch", "report on", "the system should", "it should"],
+  },
+  WHAT: {
+    EXPAND: ["generate", "create", "draft", "propose", "design", "come up with", "write", "document", "ideate"],
+    TRANSFORM: ["run", "execute", "deploy", "ship", "implement", "apply", "perform", "launch", "build"],
+    REDUCE: ["review", "analyze", "critique", "evaluate", "check", "test", "audit", "debug", "assess", "identify", "investigate", "examine", "inspect", "scrutinize"],
+    PRESERVE: ["save", "document", "log", "store", "archive", "keep", "record", "note down"],
+  },
+  WHEN: {
+    INITIATE: ["start", "begin", "fresh", "restart", "from scratch", "new", "reset", "kick off", "opening", "commence", "initiate", "trigger"],
+    SUSTAIN: ["now", "immediately", "right away", "asap", "proceed", "continue", "keep going", "right now", "presently", "forthwith"],
+    INTEGRATE: ["finish", "complete", "close", "wrap up", "finalize", "commit", "conclude", "deliver", "before the release", "end", "terminate"],
+    RELEASE: ["later", "wait", "pause", "when ready", "no rush", "hold", "queue", "standby"],
+  },
+  ROLLBACK: {
+    YES: ["rollback", "revert", "undo", "go back", "reverse", "undo that", "cancel last"]
+  }
+};
+
+const SIGNAL_TERMS = {
+  REVIEW: ["review", "critique", "feedback", "evaluate", "check this"],
+  DESIGN_COLLAB: ["ideate", "brainstorm", "design together", "architecture", "proposal"],
+  BUILD_START: ["let's build", "start implementing", "kick off", "ready to develop"],
+  INCIDENT: ["outage", "broken", "critical bug", "fixed", "incident"],
+  AUDIT: ["security audit", "risk assessment", "vulnerabilit"],
+  CREATION: ["create", "generate", "new project", "fresh start"],
+  EXECUTION: ["run this", "execute", "perform", "deploy now"],
+  IMMEDIATE: ["asap", "immediately", "right now", "now"],
+  FACTUAL_LOOKUP: ["what is", "tell me about", "historically", "data shows"],
+  LOOKUP_VERBS: ["find", "search", "lookup", "explore"],
+  TEAM: ["team", "we", "our", "all of us", "collective"],
+};
+
+function score(text, kwMap) {
+  const lowered = text.toLowerCase();
+  const scores = {};
+  for (const [key, words] of Object.entries(kwMap)) {
+    let count = 0;
+    for (const word of words) {
+      const pattern = new RegExp(`\\b${word.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (pattern.test(lowered)) {
+        const wordCount = word.split(/\s+/).length;
+        count += wordCount > 1 ? (wordCount * wordCount) * 2 : 1;
+      }
+    }
+    scores[key] = count;
+  }
+  return scores;
+}
+
+function pick(scores, fallback, priorityOrder = null) {
+  const entries = Object.entries(scores);
+  if (entries.length === 0 || entries.every(([, v]) => v === 0)) {
+    return { value: fallback, score: 0 };
+  }
+  const maxVal = Math.max(...Object.values(scores));
+  const candidates = entries.filter(([, v]) => v === maxVal).map(([k]) => k);
+  
+  if (candidates.length === 1) return { value: candidates[0], score: maxVal };
+  if (priorityOrder) {
+    for (const p of priorityOrder) {
+      if (candidates.includes(p)) return { value: p, score: maxVal };
+    }
+  }
+  return { value: candidates[0], score: maxVal };
+}
+
+function boost(scores, key, amount) {
+  scores[key] = (scores[key] || 0) + amount;
+}
+
+function forwardSteps(order, current, target) {
+  const curIdx = order.indexOf(current);
+  const tarIdx = order.indexOf(target);
+  return (tarIdx - curIdx + order.length) % order.length;
+}
+
 const PROVIDER_PRESETS = [
   {
     key: "studio-demo",
@@ -229,30 +332,6 @@ const PROVIDER_PRESETS = [
   },
 ];
 
-const REVIEW_TERMS = ["review", "analyze", "audit", "debug", "check", "bug", "issue", "fix"];
-const FACTUAL_TERMS = [
-  "latest",
-  "current",
-  "today",
-  "recent",
-  "news",
-  "weather",
-  "price",
-  "version",
-  "who is",
-  "what is",
-  "when is",
-  "compare",
-];
-const EXECUTION_TERMS = ["deploy", "run", "execute", "ship", "launch", "apply", "perform", "build"];
-const TEAM_TERMS = ["we ", "let's", "team", "together", "coordinate", "align"];
-const START_TERMS = ["start", "begin", "kick off", "new", "from scratch"];
-const INCIDENT_TERMS = ["incident", "outage", "rollback", "revert", "recover", "failure", "mitigate"];
-
-function containsAny(text, phrases) {
-  return phrases.some((phrase) => text.includes(phrase));
-}
-
 function shift(order, value, delta) {
   const index = order.indexOf(value);
   return order[(index + delta + order.length) % order.length];
@@ -284,69 +363,139 @@ export function applyOperator(state, operator) {
   );
 }
 
+function containsAny(text, phrases) {
+  const lowered = text.toLowerCase();
+  return phrases.some((phrase) => {
+    const pattern = new RegExp(`\\b${phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    return pattern.test(lowered);
+  });
+}
+
 export function encodeText(text) {
   const lowered = text.toLowerCase();
-  const factualLookup = containsAny(lowered, FACTUAL_TERMS);
-  const reviewRequest = containsAny(lowered, REVIEW_TERMS);
-  const executionRequest = containsAny(lowered, EXECUTION_TERMS);
-  const teamRequest = containsAny(lowered, TEAM_TERMS);
-  const startRequest = containsAny(lowered, START_TERMS);
-  const incidentRequest = containsAny(lowered, INCIDENT_TERMS);
+  
+  // 1. Detect Intents
+  const intents = {
+    review_request: containsAny(lowered, SIGNAL_TERMS.REVIEW),
+    design_collab_request: containsAny(lowered, SIGNAL_TERMS.DESIGN_COLLAB),
+    build_start_request: containsAny(lowered, SIGNAL_TERMS.BUILD_START),
+    incident_request: containsAny(lowered, SIGNAL_TERMS.INCIDENT),
+    audit_request: containsAny(lowered, SIGNAL_TERMS.AUDIT),
+    creation_request: containsAny(lowered, SIGNAL_TERMS.CREATION),
+    execution_request: containsAny(lowered, SIGNAL_TERMS.EXECUTION),
+    immediate_request: containsAny(lowered, SIGNAL_TERMS.IMMEDIATE),
+    factual_lookup: containsAny(lowered, SIGNAL_TERMS.FACTUAL_LOOKUP) && containsAny(lowered, SIGNAL_TERMS.LOOKUP_VERBS),
+    team_request: containsAny(lowered, SIGNAL_TERMS.TEAM),
+    rollback_score: TARGET_KW.ROLLBACK.YES.filter(w => lowered.includes(w)).length,
+  };
+  intents.rollback_detected = intents.rollback_score > 0;
 
-  let who = "ME";
-  let what = "EXPAND";
-  let when = "SUSTAIN";
+  // 2. Score Dimensions
+  const whoCur = score(lowered, CURRENT_KW.WHO);
+  const whatCur = score(lowered, CURRENT_KW.WHAT);
+  const whenCur = score(lowered, CURRENT_KW.WHEN);
+  
+  const whoTar = score(lowered, TARGET_KW.WHO);
+  const whatTar = score(lowered, TARGET_KW.WHAT);
+  const whenTar = score(lowered, TARGET_KW.WHEN);
 
-  if (factualLookup) {
-    who = "THEY";
-    what = "EXPAND";
-  } else if (reviewRequest) {
-    who = "YOU";
-    what = "REDUCE";
-  } else if (executionRequest) {
-    who = "ME";
-    what = "TRANSFORM";
+  // 3. Apply Boosts
+  if (intents.review_request || intents.incident_request) boost(whatCur, "REDUCE", 3);
+  if (intents.design_collab_request) boost(whatCur, "EXPAND", 3);
+  if (intents.creation_request) boost(whatCur, "EXPAND", 4);
+  if (intents.execution_request) boost(whatCur, "TRANSFORM", 4);
+  if (intents.team_request) boost(whoCur, "WE", 2);
+  if (intents.rollback_detected) boost(whatCur, "EXPAND", 3);
+  if (intents.review_request && intents.team_request) {
+    boost(whoCur, "WE", 4);
+    boost(whatCur, "REDUCE", 4);
   }
 
-  if (teamRequest) {
-    who = "WE";
+  // 4. Penalty overrides
+  if ((whoCur.YOU || 0) > 2) whoCur.ME = Math.max(0, (whoCur.ME || 0) - 4);
+  if ((whoCur.WE || 0) > 2) {
+    whoCur.ME = Math.max(0, (whoCur.ME || 0) - 4);
+    whoCur.YOU = Math.max(0, (whoCur.YOU || 0) - 2);
   }
-  if (startRequest) {
-    when = "INITIATE";
-  }
-  if (incidentRequest) {
-    who = teamRequest ? "WE" : "THEY";
-    what = executionRequest ? "TRANSFORM" : "REDUCE";
-  }
+  if ((whatCur.TRANSFORM || 0) > 2) whatCur.EXPAND = Math.max(0, (whatCur.EXPAND || 0) - 4);
+  if ((whatCur.REDUCE || 0) > 2) whatCur.EXPAND = Math.max(0, (whatCur.EXPAND || 0) - 4);
 
-  const currentState = stateFromDims(who, what, when);
+  // 5. Final Dimension Picks
+  const bestWho = pick(whoCur, "ME", ["YOU", "WE", "THEY"]);
+  const bestWhat = pick(whatCur, "EXPAND", ["REDUCE", "TRANSFORM", "PRESERVE"]);
+  const bestWhen = pick(whenCur, "SUSTAIN", ["INITIATE", "INTEGRATE", "RELEASE"]);
+
+  const currentState = stateFromDims(bestWho.value, bestWhat.value, bestWhen.value);
+
+  const bestWhoTar = pick(whoTar, null);
+  const bestWhatTar = pick(whatTar, null);
+  const bestWhenTar = pick(whenTar, null);
+
+  // 6. Operator Calculation (Closest Axis)
+  const diffs = [];
+  if (bestWhoTar.value && bestWhoTar.value !== bestWho.value) {
+    diffs.push({ axis: "WHO", op: "WHO_SHIFT", steps: forwardSteps(WHO, bestWho.value, bestWhoTar.value) });
+  }
+  if (bestWhatTar.value && bestWhatTar.value !== bestWhat.value) {
+    diffs.push({ axis: "WHAT", op: "WHAT_SHIFT", steps: forwardSteps(WHAT, bestWhat.value, bestWhatTar.value) });
+  }
+  if (bestWhenTar.value && bestWhenTar.value !== bestWhen.value) {
+    diffs.push({ axis: "WHEN", op: "WHEN_SHIFT", steps: forwardSteps(WHEN, bestWhen.value, bestWhenTar.value) });
+  }
 
   let operator = "WHAT_SHIFT";
   let axisDiff = "WHAT";
   let routingReason = "default_expand";
 
-  if (factualLookup || lowered.includes("rollback") || lowered.includes("revert")) {
+  if (intents.factual_lookup && intents.rollback_score > 0) {
     operator = "INV";
     axisDiff = "ALL";
-    routingReason = factualLookup
-      ? "factual_lookup_requires_external_grounding"
-      : "explicit_rollback_signal";
-  } else if (reviewRequest) {
-    operator = "WHAT_SHIFT";
-    axisDiff = "WHAT";
-    routingReason = "review_request_prefers_what_shift";
-  } else if (executionRequest && startRequest) {
-    operator = "WHEN_SHIFT";
-    axisDiff = "WHEN";
-    routingReason = "execution_start_prefers_when_shift";
-  } else if (executionRequest) {
-    operator = "WHEN_SHIFT";
-    axisDiff = "WHEN";
-    routingReason = "execution_prefers_when_shift";
-  } else if (teamRequest) {
-    operator = "WHO_SHIFT";
-    axisDiff = "WHO";
-    routingReason = "team_request_prefers_who_shift";
+    routingReason = "factual_lookup_grounding";
+  } else if (intents.rollback_score > 0) {
+    operator = "INV";
+    axisDiff = "ALL";
+    routingReason = "explicit_rollback";
+  } else if (diffs.length > 0) {
+    const axisOrder = { WHO: 0, WHAT: 1, WHEN: 2 };
+    diffs.sort((a, b) => a.steps - b.steps || axisOrder[a.axis] - axisOrder[b.axis]);
+    
+    let chosen = diffs[0];
+    routingReason = `closest_axis_${chosen.axis.toLowerCase()}`;
+
+    if (intents.execution_request && intents.immediate_request && diffs.some(d => d.axis === "WHEN")) {
+      chosen = diffs.find(d => d.axis === "WHEN");
+      routingReason = "immediate_prefers_when";
+    } else if (intents.review_request && diffs.some(d => d.axis === "WHAT")) {
+      chosen = diffs.find(d => d.axis === "WHAT");
+      routingReason = "review_prefers_what";
+    } else if (intents.build_start_request && diffs.some(d => d.axis === "WHEN")) {
+      chosen = diffs.find(d => d.axis === "WHEN");
+      routingReason = "build_start_prefers_when";
+    } else if (intents.creation_request && diffs.some(d => d.axis === "WHAT")) {
+      chosen = diffs.find(d => d.axis === "WHAT");
+      routingReason = "creation_prefers_what";
+    } else if (intents.design_collab_request && diffs.some(d => d.axis === "WHAT")) {
+      chosen = diffs.find(d => d.axis === "WHAT");
+      routingReason = "design_prefers_what";
+    }
+
+    operator = chosen.op;
+    axisDiff = chosen.axis;
+  } else {
+    // Cycle priority
+    const signals = {
+      WHO_SHIFT: Object.values(whoTar).reduce((a, b) => a + b, 0),
+      WHAT_SHIFT: Object.values(whatTar).reduce((a, b) => a + b, 0) + Object.values(whatCur).reduce((a, b) => a + b, 0),
+      WHEN_SHIFT: Object.values(whenTar).reduce((a, b) => a + b, 0) + Object.values(whenCur).reduce((a, b) => a + b, 0),
+    };
+    if (intents.review_request) signals.WHAT_SHIFT += 8;
+    if (intents.build_start_request) signals.WHEN_SHIFT += 8;
+    if (intents.audit_request) signals.WHAT_SHIFT += 10;
+
+    const cyclePriority = ["WHAT_SHIFT", "WHEN_SHIFT", "WHO_SHIFT"];
+    operator = cyclePriority.sort((a, b) => signals[b] - signals[a] || cyclePriority.indexOf(a) - cyclePriority.indexOf(b))[0];
+    axisDiff = operator.split("_")[0];
+    routingReason = "signal_fallback";
   }
 
   const nextState = applyOperator(currentState, operator);
@@ -357,14 +506,7 @@ export function encodeText(text) {
     operator,
     axisDiff,
     routingReason,
-    signalSummary: {
-      factualLookup,
-      reviewRequest,
-      executionRequest,
-      teamRequest,
-      startRequest,
-      incidentRequest,
-    },
+    signalSummary: intents,
   };
 }
 

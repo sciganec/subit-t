@@ -9,3 +9,6 @@ build/
 tmp/
 webapp/node_modules/
 webapp/dist/
+
+# Large evaluation datasets
+eval/synthetic_*.jsonl

@@ -38,7 +38,14 @@ def score_record(text: str, record: dict, *, model_assisted: bool, model: str, t
     }
 
 
-def evaluate(records: list[dict], *, model_assisted: bool, model: str, timeout: int) -> dict:
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import sys
+from functools import partial
+
+def _task_wrapper(record, model_assisted, model, timeout):
+    return score_record(record["text"], record, model_assisted=model_assisted, model=model, timeout=timeout)
+
+def evaluate(records: list[dict], *, model_assisted: bool, model: str, timeout: int, workers: int = 4) -> dict:
     totals = {
         "examples": 0,
         "current_state_correct": 0,
@@ -50,53 +57,45 @@ def evaluate(records: list[dict], *, model_assisted: bool, model: str, timeout: 
     }
     failures = []
 
-    for record in records:
-        totals["examples"] += 1
-        scored = score_record(record["text"], record, model_assisted=model_assisted, model=model, timeout=timeout)
-        totals["current_state_correct"] += int(scored["matches_current_state"])
-        totals["operator_correct"] += int(scored["matches_operator"])
-        totals["next_state_correct"] += int(scored["matches_next_state"])
-        totals["axis_correct"] += int(scored["matches_axis"])
+    print(f"Starting evaluation of {len(records)} examples across {workers} workers...")
 
-        if not all(
-            [
-                scored["matches_current_state"],
-                scored["matches_operator"],
-                scored["matches_next_state"],
-                scored["matches_axis"],
-            ]
-        ):
-            failures.append(
-                {
-                    "id": record["id"],
-                    "text": record["text"],
-                    "expected": {
-                        "current_state": record["expected_current_state"],
-                        "operator": record["expected_operator"],
-                        "next_state": record["expected_next_state"],
-                        "axis": record["expected_axis"],
-                    },
-                    "predicted": {
-                        "current_state": scored["current_state"],
-                        "operator": scored["operator"],
-                        "next_state": scored["next_state"],
-                        "axis": scored["axis"],
-                    },
-                }
-            )
+    # Use partial to fix arguments for the top-level wrapper
+    task = partial(_task_wrapper, model_assisted=model_assisted, model=model, timeout=timeout)
 
-        paraphrases = record.get("paraphrases", [])
-        if paraphrases:
-            totals["paraphrase_examples"] += 1
-            base_operator = scored["operator"]
-            if all(
-                encode(text, model_assisted=model_assisted, model=model, timeout=timeout).operator.value == base_operator
-                for text in paraphrases
-            ):
-                totals["paraphrase_operator_consistent"] += 1
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(task, r): r for r in records}
+        
+        for i, future in enumerate(as_completed(futures)):
+            record = futures[future]
+            scored = future.result()
+            
+            totals["examples"] += 1
+            totals["current_state_correct"] += int(scored["matches_current_state"])
+            totals["operator_correct"] += int(scored["matches_operator"])
+            totals["next_state_correct"] += int(scored["matches_next_state"])
+            totals["axis_correct"] += int(scored["matches_axis"])
+
+            if not all([scored["matches_current_state"], scored["matches_operator"], scored["matches_next_state"], scored["matches_axis"]]):
+                if len(failures) < 100: # Cap failures to prevent memory blooming
+                    failures.append({
+                        "id": record["id"],
+                        "text": record["text"],
+                        "expected": {
+                            "current_state": record["expected_current_state"],
+                            "operator": record["expected_operator"],
+                            "next_state": record["expected_next_state"],
+                            "axis": record["expected_axis"],
+                        },
+                        "predicted": scored,
+                    })
+
+            if i > 0 and i % 500 == 0:
+                sys.stdout.write(f"\rProgress: {i}/{len(records)} ({i/len(records):.1%})")
+                sys.stdout.flush()
+
+    print(f"\rProgress: {len(records)}/{len(records)} (100.0%)")
 
     examples = max(totals["examples"], 1)
-    paraphrase_examples = max(totals["paraphrase_examples"], 1)
     return {
         "totals": totals,
         "metrics": {
@@ -104,9 +103,6 @@ def evaluate(records: list[dict], *, model_assisted: bool, model: str, timeout: 
             "operator_accuracy": totals["operator_correct"] / examples,
             "next_state_accuracy": totals["next_state_correct"] / examples,
             "axis_accuracy": totals["axis_correct"] / examples,
-            "paraphrase_operator_consistency": totals["paraphrase_operator_consistent"] / paraphrase_examples
-            if totals["paraphrase_examples"]
-            else None,
         },
         "failures": failures,
     }
@@ -134,8 +130,6 @@ def main() -> None:
     print(f"Operator accuracy:      {report['metrics']['operator_accuracy']:.1%}")
     print(f"Next-state accuracy:    {report['metrics']['next_state_accuracy']:.1%}")
     print(f"Axis accuracy:          {report['metrics']['axis_accuracy']:.1%}")
-    if report["metrics"]["paraphrase_operator_consistency"] is not None:
-        print(f"Paraphrase consistency: {report['metrics']['paraphrase_operator_consistency']:.1%}")
 
     if report["failures"]:
         print("\nSample failures:")

@@ -147,6 +147,24 @@ const LANDING_PATHS = [
   },
 ];
 
+const PHILOSOPHY_CARDS = [
+  {
+    title: "Structural Monism",
+    subtitle: "Posture is State",
+    body: "SUBIT-T eliminates the dualism of data and instruction. The 64-state lattice is not a menu of commands; it is a space of unified cognitive postures where being in a state is identical to performing its associated action.",
+  },
+  {
+    title: "Monadology",
+    subtitle: "The Simple Substance",
+    body: "Inspired by Leibniz, every 6-bit state is a 'monad'—a simple, indivisible unit that reflects the entire system's intent. There are no parts, only transitions. Each state perceives the user's goal from its own unique mathematical coordinate.",
+  },
+  {
+    title: "Calculus Ratiocinator",
+    subtitle: "Reason as Computation",
+    body: "The project is a spiritual successor to Leibniz's Step Reckoner. By formalizing transitions as Z4 cyclic ops (WHO_SHIFT, WHAT_SHIFT, WHEN_SHIFT, INV), we turn reasoning into a deterministic algebra where errors are solvable via rollback.",
+  },
+];
+
 function loadSettings() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -321,6 +339,16 @@ function TheoryCard({ item }) {
   );
 }
 
+function PhilosophyCard({ item }) {
+  return (
+    <article className="philosophy-card">
+      <span className="brand-topline">{item.title}</span>
+      <h3>{item.subtitle}</h3>
+      <p>{item.body}</p>
+    </article>
+  );
+}
+
 function Landing({ onEnterStudio }) {
   return (
     <div className="landing-shell">
@@ -390,6 +418,23 @@ function Landing({ onEnterStudio }) {
         <div className="theory-grid">
           {THEORY_CARDS.map((item) => (
             <TheoryCard key={item.title} item={item} />
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-philosophy">
+        <div className="landing-section-head">
+          <span className="section-tag">The Leibniz Milestone</span>
+          <h2>Structural Monism & Monadology</h2>
+          <p>
+            SUBIT-T v0.4.0 is more than a technical update. It is a deep-dive into the 
+            historical and philosophical debt we owe to Gottfried Wilhelm Leibniz.
+            Explore the three pillars of our structural monism approach.
+          </p>
+        </div>
+        <div className="philosophy-grid">
+          {PHILOSOPHY_CARDS.map((item, index) => (
+            <PhilosophyCard key={index} item={item} />
           ))}
         </div>
       </section>
