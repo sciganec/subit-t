@@ -1,7 +1,13 @@
 # SUBIT-T
-### v0.4.0: The Leibniz Milestone (Structural Monism)
+### v0.4.1: The Leibniz Milestone (Structural Monism + Quadrant UX)
 
 [**Read the v0.4.0 Leibniz Tutorial & Manifesto**](file:///c:/Users/sciga/subit-t/docs/LEIBNIZ_RELEASE.md) — *Exploring the history of computation, Monadology, and the 64-state cognitive lattice.*
+
+**New in v0.4.1**:
+- **Quadrant Observatory**: Added a unified immersive dashboard for Studio.
+- **Clifford Torus Projection**: Implemented math-driven S3 projection view for all 64 monads.
+- **Surface Snapping & Nav**: 3D topological manifolds now support click-snapping logic.
+- **Compact UI/UX**: Hover-activated glassmorphic hints with micro-animations.
 
 Archetypal routing layer for multi-agent AI systems.
 
