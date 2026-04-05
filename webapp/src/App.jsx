@@ -6,12 +6,16 @@ import {
   listAssistants,
   listExamples,
   listProviderPresets,
+  stateFromDims,
 } from "./lib/subit";
+import UnifiedObservatory from "./components/UnifiedObservatory";
+import TopologicalView from "./components/TopologicalView";
 import logoMark from "./assets/subit-mark.svg";
 import wordmark from "./assets/subit-wordmark.svg";
 import splashArt from "./assets/subit-splash.svg";
 
 const STORAGE_KEY = "subit-t-ai-settings";
+const generateId = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
 const ASSISTANTS = listAssistants();
 const PRESETS = listProviderPresets();
 const EXAMPLES = listExamples();
@@ -349,7 +353,7 @@ function PhilosophyCard({ item }) {
   );
 }
 
-function Landing({ onEnterStudio }) {
+function Landing({ onEnterStudio, activeState, onSelect }) {
   return (
     <div className="landing-shell">
       <header className="landing-nav">
@@ -382,8 +386,11 @@ function Landing({ onEnterStudio }) {
             ))}
           </div>
         </div>
-        <div className="landing-visual">
-          <img className="splash-art" src={splashArt} alt="SUBIT-T splash illustration" />
+        <div className="landing-visual-full">
+          <UnifiedObservatory 
+            activeState={activeState} 
+            onSelect={onSelect} 
+          />
         </div>
       </section>
 
@@ -453,6 +460,7 @@ function Landing({ onEnterStudio }) {
 export default function App() {
   const [view, setView] = useState("home");
   const [viewPhase, setViewPhase] = useState("idle");
+  const [landingFocus, setLandingFocus] = useState(STARTER[0].route.currentState);
   const [settings, setSettings] = useState(loadSettings);
   const [messages, setMessages] = useState(STARTER);
   const [input, setInput] = useState("");
@@ -461,6 +469,7 @@ export default function App() {
   const [lastRoute, setLastRoute] = useState(null);
   const [lastPrompt, setLastPrompt] = useState("");
   const [routeFlashKey, setRouteFlashKey] = useState(0);
+  const [studioTab, setStudioTab] = useState("chat"); // ["chat", "observatory"]
   const [isPending, startTransition] = useTransition();
   const bottomRef = useRef(null);
 
@@ -547,7 +556,7 @@ export default function App() {
       input: text,
       assistantKey: settings.assistant,
     });
-    const userMessage = { id: crypto.randomUUID(), role: "user", content: text, route };
+    const userMessage = { id: generateId(), role: "user", content: text, route };
 
     setInput("");
     setError("");
@@ -574,7 +583,7 @@ export default function App() {
 
         setMessages((current) => [
           ...current,
-          { id: crypto.randomUUID(), role: "assistant", content, route },
+          { id: generateId(), role: "assistant", content, route },
         ]);
         setStatusText(
           settings.providerMode === "demo"
@@ -588,10 +597,34 @@ export default function App() {
     });
   }
 
+  async function handleManualFocus(monad) {
+    const route = {
+      currentState: lastRoute?.nextState || messages[messages.length - 1]?.route?.nextState,
+      nextState: monad,
+      operator: "MANUAL_FOCUS",
+      routingReason: "Manual atlas selection",
+      signalSummary: {}
+    };
+    const nextPrompt = buildPrompt({
+      state: monad,
+      operator: "MANUAL_FOCUS",
+      input: "Exploring the grid.",
+      assistantKey: settings.assistant
+    });
+    
+    setLastRoute(route);
+    setLastPrompt(nextPrompt);
+    setStudioTab("chat"); 
+  }
+
   if (view === "home") {
     return (
       <div className={`app-stage ${viewPhase}`}>
-        <Landing onEnterStudio={enterStudio} />
+        <Landing 
+          onEnterStudio={enterStudio} 
+          activeState={landingFocus}
+          onSelect={setLandingFocus}
+        />
       </div>
     );
   }
@@ -599,256 +632,209 @@ export default function App() {
   return (
     <div className={`app-stage ${viewPhase}`}>
       <div className="studio-shell">
-      <aside className="studio-sidebar">
-        <section className="brand-panel">
-          <div className="brand-lockup">
-            <img className="brand-mark" src={logoMark} alt="SUBIT-T mark" />
-            <div>
-              <div className="brand-topline">SUBIT-T AI</div>
-              <h1>Autonomous routing studio</h1>
+        <aside className="studio-sidebar">
+          <header className="brand-panel">
+            <div className="brand-lockup" onClick={goHome} style={{ cursor: "pointer" }}>
+              <img src={logoMark} alt="" className="brand-mark" />
+              <div className="brand-copy">
+                <span className="brand-topline">SUBIT-T // v0.4.0</span>
+                <h1>Studio</h1>
+              </div>
             </div>
-          </div>
-          <p>
-            Premium demo interface for `SUBIT-T` with route visibility, local Llama support,
-            and a fully autonomous offline presentation mode.
-          </p>
-          <div className="brand-badges">
-            <span>v3 cyclic routing</span>
-            <span>local Llama via Ollama</span>
-            <span>autonomous demo mode</span>
-          </div>
-        </section>
+            <div className="brand-badges">
+              <span className="route-chip">Leibniz Milestone</span>
+              <span className="muted-chip">64 States</span>
+            </div>
+          </header>
 
-        <section className="panel settings-panel">
-          <div className="panel-header">
-            <h2>Runtime</h2>
-            <button className="soft-button" type="button" onClick={resetChat}>
-              Reset
+          <nav className="panel studio-nav">
+            <button 
+              className={`preset-card ${studioTab === "chat" ? "is-active" : ""}`}
+              onClick={() => setStudioTab("chat")}
+              style={{ width: "100%", marginBottom: "8px" }}
+            >
+              <strong>Studio Chat</strong>
+              <span>Interactive dialogue & routing</span>
             </button>
-            <button className="soft-button" type="button" onClick={goHome}>
-              Home
+            <button 
+              className={`preset-card ${studioTab === "observatory" ? "is-active" : ""}`}
+              onClick={() => setStudioTab("observatory")}
+              style={{ width: "100%" }}
+            >
+              <strong>Monadology Grid</strong>
+              <span>64-state topology map</span>
             </button>
-          </div>
-          <div className="preset-grid">
-            {PRESETS.map((preset) => (
-              <PresetCard
-                key={preset.key}
-                preset={preset}
-                active={settings.providerMode === preset.settings.providerMode && settings.model === preset.settings.model}
-                onApply={applyPreset}
-              />
-            ))}
-          </div>
-          <div className="field-grid">
-            <label>
-              Provider mode
-              <input value={settings.providerMode} readOnly />
-            </label>
-            <label>
-              Model
-              <input
-                value={settings.model}
-                onChange={(event) => patchSettings("model", event.target.value)}
-                placeholder="llama3.2"
-              />
-            </label>
-          </div>
-          <label>
-            Endpoint
-            <input
-              value={settings.endpoint}
-              onChange={(event) => patchSettings("endpoint", event.target.value)}
-              placeholder="http://localhost:11434/v1/chat/completions"
-            />
-          </label>
-          <label>
-            API key
-            <input
-              type="password"
-              value={settings.apiKey}
-              onChange={(event) => patchSettings("apiKey", event.target.value)}
-              placeholder="Optional for local Ollama"
-            />
-          </label>
-          <div className="field-grid">
-            <label>
-              Assistant mode
-              <select
-                value={settings.assistant}
-                onChange={(event) => patchSettings("assistant", event.target.value)}
-              >
-                {ASSISTANTS.map((assistant) => (
-                  <option key={assistant.key} value={assistant.key}>
-                    {assistant.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Temperature
-              <input
-                value={settings.temperature}
-                onChange={(event) => patchSettings("temperature", event.target.value)}
-                placeholder="0.4"
-              />
-            </label>
-          </div>
-          <p className="note">
-            Best local path:
-            {" "}
-            <code>ollama serve</code>
-            {" "}
-            then choose
-            {" "}
-            <strong>Ollama Llama 3.2</strong>.
-            For presentations without any model running, choose
-            {" "}
-            <strong>Studio Demo</strong>.
-          </p>
-        </section>
+          </nav>
 
-        <div key={routeFlashKey} className="route-inspector-shell">
-          <RouteInspector route={lastRoute ?? previewRoute} prompt={lastPrompt || (previewRoute ? buildPrompt({
-          state: previewRoute.nextState,
-          operator: previewRoute.operator,
-          input: deferredInput.trim(),
-          assistantKey: settings.assistant,
-        }) : "")} />
-        </div>
-      </aside>
-
-      <main className="studio-main">
-        <section className="hero-panel">
-          <div className="hero-copy">
-            <span className="section-tag">Presentation mode</span>
-            <h2>Turn routed intelligence into a movement, not just a demo</h2>
-            <p>
-              `SUBIT-T AI` exposes the route behind every answer, supports local Llama
-              through Ollama, and still works autonomously when no live model is connected.
-            </p>
-          </div>
-          <div className="hero-stats">
-            <MetricCard label="States" primary="64" secondary="closed v3 space" />
-            <MetricCard label="Operators" primary="4" secondary="WHO / WHAT / WHEN / INV" />
-            <MetricCard label="Modes" primary="3" secondary="demo / ollama / cloud" />
-          </div>
-        </section>
-
-        <section className="panel doctrine-panel">
-          <div className="panel-header">
-            <h2>The Doctrine</h2>
-            <span className="muted-chip">why this feels different</span>
-          </div>
-          <div className="doctrine-grid">
-            {DOCTRINE.map((item) => (
-              <DoctrineCard key={item.title} item={item} />
-            ))}
-          </div>
-        </section>
-
-        <section className="panel tutorial-panel">
-          <div className="panel-header">
-            <h2>Foundational Tutorial</h2>
-            <span className="muted-chip">onboard people in 5 minutes</span>
-          </div>
-          <div className="tutorial-grid">
-            <div className="tutorial-column">
-              {TUTORIAL_STEPS.map((item) => (
-                <article className="tutorial-step" key={item.step}>
-                  <strong>{item.step}</strong>
-                  <p>{item.detail}</p>
-                </article>
+          <section className="panel settings-panel">
+            <div className="panel-header">
+              <h2>Runtime</h2>
+              <button className="soft-button" type="button" onClick={resetChat}>Reset</button>
+              <button className="soft-button" type="button" onClick={goHome}>Home</button>
+            </div>
+            <div className="preset-grid">
+              {PRESETS.map((p) => (
+                <PresetCard 
+                  key={p.key} 
+                  preset={p} 
+                  active={settings.providerMode === p.settings.providerMode && settings.model === p.settings.model} 
+                  onApply={applyPreset} 
+                />
               ))}
             </div>
-            <div className="tutorial-column">
-              <div className="mini-manifesto">
-                <span className="section-tag">Theory</span>
-                <h3>What people should remember</h3>
-                <div className="theory-grid">
-                  {THEORY_CARDS.map((item) => (
-                    <TheoryCard key={item.title} item={item} />
+            <div className="field-grid">
+              <label>Provider mode<input value={settings.providerMode} readOnly /></label>
+              <label>Model 
+                <input 
+                  value={settings.model} 
+                  onChange={(e) => patchSettings("model", e.target.value)} 
+                />
+              </label>
+            </div>
+            <label>Endpoint 
+              <input 
+                value={settings.endpoint} 
+                onChange={(e) => patchSettings("endpoint", e.target.value)} 
+              />
+            </label>
+            <div className="field-grid">
+              <label>Assistant
+                <select value={settings.assistant} onChange={(e) => patchSettings("assistant", e.target.value)}>
+                  {ASSISTANTS.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+                </select>
+              </label>
+              <label>Temperature
+                <input value={settings.temperature} onChange={(e) => patchSettings("temperature", e.target.value)} />
+              </label>
+            </div>
+          </section>
+
+          {studioTab === "chat" && (lastRoute || previewRoute) && (
+            <div key={routeFlashKey} className="route-inspector-shell">
+              <RouteInspector 
+                route={lastRoute ?? previewRoute} 
+                prompt={lastPrompt || (previewRoute ? buildPrompt({
+                  state: previewRoute.nextState,
+                  operator: previewRoute.operator,
+                  input: deferredInput.trim(),
+                  assistantKey: settings.assistant,
+                }) : "")} 
+              />
+            </div>
+          )}
+        </aside>
+
+        <main className="studio-main">
+          {studioTab === "chat" ? (
+            <>
+              <header className="hero-panel">
+                <div className="hero-copy">
+                  <span className="section-tag">Interactive Analysis</span>
+                  <h2>Calculus Ratiocinator</h2>
+                  <p>Every response is a state transition. The system prompt is rebuilt live based on the current monad.</p>
+                </div>
+                <div className="hero-stats">
+                  <MetricCard label="PARITY" primary="99.7%" secondary="stable" />
+                  <MetricCard label="AXES" primary="3 (Z4)" secondary="WHO/WHAT/WHEN" />
+                  <MetricCard label="SPACE" primary="64" secondary="states" />
+                </div>
+              </header>
+
+              <section className="panel chat-panel">
+                <div className="panel-header">
+                  <h2>Studio Chat</h2>
+                  <div className="tab-switcher">
+                    <button className="soft-button" onClick={() => setStudioTab("observatory")}>
+                      Open Observatory
+                    </button>
+                  </div>
+                </div>
+                <div className="chat-log">
+                  {messages.map((m) => (
+                    <MessageCard key={m.id} item={m} />
+                  ))}
+                  {statusText && <div className="status-bar">{statusText}</div>}
+                  {error && <div className="error-bar">{error}</div>}
+                  <div ref={bottomRef} />
+                </div>
+                <form className="composer" onSubmit={onSubmit}>
+                  <textarea
+                    placeholder="Enter prompt to trigger route..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        onSubmit(e);
+                      }
+                    }}
+                  />
+                  <div className="composer-actions">
+                    <button type="submit" className="primary-button" disabled={!canSend || isPending}>
+                      {isPending ? "Routing..." : "Send Prompt"}
+                    </button>
+                  </div>
+                </form>
+              </section>
+
+              <section className="panel route-panel">
+                <RouteInspector 
+                  route={lastRoute || messages[messages.length - 1]?.route} 
+                  prompt={lastPrompt} 
+                />
+              </section>
+
+              <section className="panel examples-section">
+                <div className="panel-header">
+                  <h2>Scenarios</h2>
+                </div>
+                <div className="example-groups" style={{ padding: '0 24px 24px' }}>
+                  {exampleGroups.map(([cat, items]) => (
+                    <div key={cat} className="example-group">
+                      <h3>{cat}</h3>
+                      <div className="example-grid">
+                        {items.map(ex => <ExampleCard key={ex.id} example={ex} onUse={applyExample} />)}
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel examples-panel">
-          <div className="panel-header">
-            <h2>Scenario library</h2>
-            <span className="muted-chip">click any card to preload it</span>
-          </div>
-          <div className="example-groups">
-            {exampleGroups.map(([category, items]) => (
-              <div key={category} className="example-group">
-                <div className="example-group-head">
-                  <h3>{category}</h3>
-                  <span>{items.length} prompts</span>
-                </div>
-                <div className="example-grid">
-                  {items.map((example) => (
-                    <ExampleCard key={example.id} example={example} onUse={applyExample} />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel tutorial-panel">
-          <div className="panel-header">
-            <h2>Operational Rituals</h2>
-            <span className="muted-chip">how to make SUBIT feel inevitable</span>
-          </div>
-          <div className="ritual-layout">
-            <div className="ritual-list">
-              {RITUALS.map((item) => (
-                <article className="ritual-card" key={item}>
-                  <strong>Practice</strong>
-                  <p>{item}</p>
-                </article>
-              ))}
-            </div>
-            <div className="ritual-list">
-              {PRESENTATION_TIPS.map((item) => (
-                <article className="ritual-card spotlight" key={item}>
-                  <strong>Presentation tip</strong>
-                  <p>{item}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="chat-panel">
-          <div className="chat-shell">
-            <div className="chat-log">
-              {messages.map((item) => (
-                <MessageCard key={item.id} item={item} />
-              ))}
-              <div ref={bottomRef} />
-            </div>
-            <form className="composer" onSubmit={onSubmit}>
-              <textarea
-                rows={4}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder="Ask SUBIT-T AI to review, plan, research, recover, or explain..."
+              </section>
+            </>
+          ) : (
+            <div className="studio-main-observatory">
+              <UnifiedObservatory
+                activeState={lastRoute?.nextState || messages[messages.length - 1]?.route?.nextState}
+                onSelect={handleManualFocus}
               />
-              <div className="composer-bar">
-                <div className="status-stack">
-                  <span className="status-line">{isPending ? "Generating response..." : statusText}</span>
-                  {error ? <span className="error-text">{error}</span> : null}
+            </div>
+          )}
+
+          <section className="panel doctrine-panel">
+            <div className="panel-header">
+              <h2>Doctrine</h2>
+            </div>
+            <div className="doctrine-grid">
+              {DOCTRINE.map(d => <DoctrineCard key={d.title} item={d} />)}
+            </div>
+          </section>
+
+          <section className="panel tutorial-panel">
+             <div className="panel-header"><h2>Tutorial</h2></div>
+             <div className="tutorial-grid">
+                <div className="tutorial-column">
+                  {TUTORIAL_STEPS.map(s => <article className="tutorial-step" key={s.step}><strong>{s.step}</strong><p>{s.detail}</p></article>)}
                 </div>
-                <button type="submit" className="primary-button" disabled={!canSend || isPending}>
-                  {isPending ? "Thinking..." : "Send"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </section>
-      </main>
+                <div className="tutorial-column">
+                  <div className="mini-manifesto">
+                    <h3>Theory</h3>
+                    <div className="theory-grid">
+                      {THEORY_CARDS.map(t => <TheoryCard key={t.title} item={t} />)}
+                    </div>
+                  </div>
+                </div>
+             </div>
+          </section>
+        </main>
       </div>
     </div>
   );

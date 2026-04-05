@@ -2,6 +2,27 @@ const WHO = ["THEY", "YOU", "ME", "WE"];
 const WHAT = ["PRESERVE", "REDUCE", "EXPAND", "TRANSFORM"];
 const WHEN = ["RELEASE", "INTEGRATE", "INITIATE", "SUSTAIN"];
 
+const WHO_LOGIC = {
+  THEY: "Objective/System level. Abstract laws and cosmos.",
+  YOU: "Relational/Reactive level. Dialogue and empathy.",
+  ME: "Subjective/Autonomous level. Individual will and action.",
+  WE: "Collective/Synergetic level. Unity and synchronization.",
+};
+
+const WHAT_LOGIC = {
+  PRESERVE: "Memory/Storage. Storing information for later.",
+  REDUCE: "Analysis/Critique. Filtering out noise from signal.",
+  EXPAND: "Creation/Ideation. Opening the space of possibilities.",
+  TRANSFORM: "Execution/Transformation. Converting intent into result.",
+};
+
+const WHEN_LOGIC = {
+  RELEASE: "Pause/Dormancy. Potentiation of the next cycle.",
+  INTEGRATE: "Synthesis/Closing. Gathering results and experience.",
+  INITIATE: "Impulse/Opening. The first spark of a new movement.",
+  SUSTAIN: "Flow/Throughput. Active maintenance of process.",
+};
+
 const WHO_LABEL = {
   THEY: "system-directed",
   YOU: "other-directed",
@@ -337,7 +358,7 @@ function shift(order, value, delta) {
   return order[(index + delta + order.length) % order.length];
 }
 
-function stateFromDims(who, what, when) {
+export function stateFromDims(who, what, when) {
   return {
     who,
     what,
@@ -599,4 +620,70 @@ export function listProviderPresets() {
 
 export function listExamples() {
   return EXAMPLES;
+}
+
+export function getAxisLogic() {
+  return { WHO: WHO_LOGIC, WHAT: WHAT_LOGIC, WHEN: WHEN_LOGIC };
+}
+
+export function listAllArchetypes() {
+  const all = [];
+  for (const w of WHO) {
+    for (const x of WHAT) {
+      for (const y of WHEN) {
+        const state = stateFromDims(w, x, y);
+        const { row, col } = getLatticeCoords(w, x, y);
+        all.push({
+          ...state,
+          row,
+          col,
+          logic: {
+            who: WHO_LOGIC[w],
+            what: WHAT_LOGIC[x],
+            when: WHEN_LOGIC[y],
+            role: ARCHETYPE_ROLE[state.name] || `${state.name} archetype.`,
+          },
+        });
+      }
+    }
+  }
+  return all;
+}
+
+export function getLatticeCoords(who, what, when) {
+  const w = WHO.indexOf(who);
+  const x = WHAT.indexOf(what);
+  const y = WHEN.indexOf(when);
+  
+  // Mapping 4x4x4 to 8x8 Lattice
+  // Row = WHO (4) x WHAT_high (2)
+  // Col = WHEN (4) x WHAT_low (2)
+  const row = w * 2 + Math.floor(x / 2);
+  const col = y * 2 + (x % 2);
+  
+  return { row, col };
+}
+
+export function getNeighbors(state) {
+  const neighbors = [];
+  const ops = ["WHO_SHIFT", "WHAT_SHIFT", "WHEN_SHIFT", "INV"];
+  for (const op of ops) {
+    const next = applyOperator(state, op);
+    neighbors.push({ op, name: next.name, state: next });
+  }
+  return neighbors;
+}
+
+export function getTorusCoords(state, R = 3, r = 1) {
+  const { row, col } = getLatticeCoords(state.who, state.what, state.when);
+  
+  // Map 8x8 to [0, 2π]
+  const theta = (row / 8) * Math.PI * 2;
+  const phi = (col / 8) * Math.PI * 2;
+  
+  const x = (R + r * Math.cos(phi)) * Math.cos(theta);
+  const y = (R + r * Math.cos(phi)) * Math.sin(theta);
+  const z = r * Math.sin(phi);
+  
+  return [x, y, z];
 }
